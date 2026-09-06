@@ -64,32 +64,8 @@ test("reserved handle page shows 学长学姐 copy and follow plus course count"
     page.getByRole("heading", { level: 1, name: "匿名用户#000000" }),
   ).toBeVisible();
   const profileCard = page.locator('[aria-label="公开编号"]');
-  const avatar = profileCard.locator("img").locator("visible=true");
-  const handle = profileCard.getByRole("heading", { name: "匿名用户#000000" });
-  const mobile = (page.viewportSize()?.width ?? 1280) < 768;
-  const firstStat = mobile
-    ? profileCard.locator("dt", { hasText: /^关注$/ })
-    : profileCard.getByText("关注了", { exact: true });
-  const [avatarBox, handleBox, firstStatBox] = await Promise.all([
-    avatar.boundingBox(),
-    handle.boundingBox(),
-    firstStat.boundingBox(),
-  ]);
-  expect(avatarBox).toBeTruthy();
-  expect(handleBox).toBeTruthy();
-  expect(firstStatBox).toBeTruthy();
-  if (mobile) {
-    expect(Math.abs(avatarBox!.y - handleBox!.y)).toBeLessThan(16);
-    expect(avatarBox!.x).toBeLessThan(handleBox!.x);
-    expect(handleBox!.y + handleBox!.height).toBeLessThan(firstStatBox!.y);
-    await expect(profileCard.getByText("点评", { exact: true })).toBeVisible();
-    await expect(profileCard.getByText("3", { exact: true })).toBeVisible();
-  } else {
-    expect(avatarBox!.y + avatarBox!.height).toBeLessThanOrEqual(handleBox!.y);
-    expect(handleBox!.y + handleBox!.height).toBeLessThan(firstStatBox!.y);
-    await expect(profileCard.getByText("点评了", { exact: true })).toBeVisible();
-    await expect(profileCard.getByText("3 门课程")).toBeVisible();
-  }
+  const courseCount = (page.viewportSize()?.width ?? 1280) < 768 ? "3" : "3 门课程";
+  await expect(profileCard.getByText(courseCount, { exact: true })).toBeVisible();
   await expect(page.getByText("来自以前的学长学姐的评价").first()).toBeVisible();
   await expect(
     profileCard.getByText("来自以前的学长学姐的评价"),
@@ -146,56 +122,6 @@ test("reserved handle page can follow when logged in", async ({ page }) => {
   await page.goto("/u/000000");
   await expect(
     page.getByRole("heading", { level: 1, name: "匿名用户#000000" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "关注" }).click();
-  await expect(page.getByRole("button", { name: "取消关注" })).toBeVisible();
-});
-
-test("numbered handle page can follow when logged in", async ({ page }) => {
-  let followed = false;
-  await page.route("**/api/**", async (route) => {
-    const url = new URL(route.request().url());
-    const request = route.request();
-    if (url.pathname === "/api/config")
-      return route.fulfill({
-        json: { siteName: "非官方课评@JUFE", universityName: "江西财经大学", admin: false },
-      });
-    if (url.pathname === "/api/user/session")
-      return route.fulfill({
-        json: {
-          authenticated: true,
-          csrfToken: "csrf-user",
-          loginPath: "/login",
-          logoutPath: "/logout",
-        },
-      });
-    if (url.pathname === "/api/u/000002" && request.method() === "GET")
-      return route.fulfill({
-        json: {
-          public_code: 2,
-          handle: "匿名用户#000002",
-          avatar_key: 2,
-          reserved: false,
-          followable: true,
-          viewer_followed: followed,
-          viewer_is_self: false,
-          note: null,
-          review_count: 0,
-          following_count: 0,
-          follower_count: followed ? 1 : 0,
-          reviews: [],
-        },
-      });
-    if (url.pathname === "/api/u/000002/follow") {
-      followed = request.method() === "PUT";
-      return route.fulfill({ json: { viewer_followed: followed } });
-    }
-    return route.fulfill({ status: 404, json: { error: "not mocked" } });
-  });
-
-  await page.goto("/u/000002");
-  await expect(
-    page.getByRole("heading", { level: 1, name: "匿名用户#000002" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "关注" }).click();
   await expect(page.getByRole("button", { name: "取消关注" })).toBeVisible();

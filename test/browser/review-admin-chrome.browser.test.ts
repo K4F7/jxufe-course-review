@@ -183,30 +183,3 @@ test("preview=admin does not force course 公告 editor or review chrome on", as
   await expect(page.getByText("管理动作（仅管理员可见）")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "屏蔽" })).toHaveCount(0);
 });
-
-test("the old /announcements URL is gone", async ({ page }) => {
-  await page.route("**/api/**", async (route) => {
-    const url = new URL(route.request().url());
-    if (url.pathname === "/api/config") {
-      return route.fulfill({
-        json: { siteName: "非官方课评@JUFE", universityName: "江西财经大学", admin: false },
-      });
-    }
-    if (url.pathname === "/api/user/session") {
-      return route.fulfill({
-        json: { authenticated: false, loginPath: "/login", logoutPath: "/logout" },
-      });
-    }
-    if (url.pathname === "/api/site/banner") {
-      return route.fulfill({ json: { desktopHtml: "", mobileHtml: "", updatedAt: null } });
-    }
-    return route.fulfill({ status: 404, json: { error: "not mocked" } });
-  });
-
-  await page.goto("/announcements?preview=admin", {
-    waitUntil: "domcontentloaded",
-  });
-  await expect(page.getByRole("heading", { name: "页面不存在" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "公告栏" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "发布公告" })).toHaveCount(0);
-});

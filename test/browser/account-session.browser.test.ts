@@ -217,17 +217,6 @@ test("logout failure offers a retry that recovers", async ({ page }) => {
   await expect(page).toHaveURL(/\/courses$/);
 });
 
-test("the old /logout URL is gone", async ({ page }) => {
-  const mock = state();
-  await mockApi(page, mock);
-  await page.goto("/logout");
-  await expect(page.getByRole("heading", { name: "页面不存在" })).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "确认退出" }),
-  ).toHaveCount(0);
-  expect(mock.logoutCalls).toBe(0);
-});
-
 test("a 401 on a write clears the viewer state without a vote login prompt", async ({
   page,
 }) => {

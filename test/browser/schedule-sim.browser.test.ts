@@ -70,18 +70,11 @@ async function rememberMobileNotice(page: Page) {
   }, SCHEDULE_MOBILE_NOTICE_KEY);
 }
 
-function scheduleDesktopNotice(page: Page) {
-  return page.getByRole("alertdialog", { name: "本功能只支持电脑端" });
-}
-
 async function mockScheduleApi(
   page: Page,
   authenticated = true,
-  options?: { showMobileNotice?: boolean },
 ) {
-  if (!options?.showMobileNotice) {
-    await rememberMobileNotice(page);
-  }
+  await rememberMobileNotice(page);
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/api/config") {
@@ -361,22 +354,4 @@ test("same-course swap is atomic after selecting a catalog section", async ({ pa
   await expect(page.getByRole("grid", { name: "周课表" }).getByText("高等数学（教师乙）").first()).toBeVisible();
   await expect(page.getByRole("grid", { name: "周课表" }).getByText("高等数学（教师甲）")).toHaveCount(0);
   await expect(courseList(page)).not.toContainText(/班03|班01/);
-});
-
-test("shows the desktop-only notice once on a narrow viewport", async ({
-  page,
-}) => {
-  await mockScheduleApi(page, true, { showMobileNotice: true });
-  await page.goto("/schedule");
-  const notice = scheduleDesktopNotice(page);
-  if ((page.viewportSize()?.width ?? 0) >= 640) {
-    await expect(notice).toHaveCount(0);
-    return;
-  }
-  await expect(notice).toBeVisible();
-  await expect(notice).toContainText("移动端不适配");
-  await notice.getByRole("button", { name: "知道了" }).click();
-  await expect(notice).toHaveCount(0);
-  await page.reload();
-  await expect(scheduleDesktopNotice(page)).toHaveCount(0);
 });

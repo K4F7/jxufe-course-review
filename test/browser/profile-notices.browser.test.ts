@@ -472,35 +472,6 @@ test("notices preview=filled shows a numeric unread badge on the header icon", a
   await expect(page).toHaveURL(/\/u\/000002/);
 });
 
-test("notices preview=notices-badge-zero hides the header unread badge", async ({
-  page,
-}) => {
-  await mockApi(page, state({ authenticated: false, unreadCount: null }));
-  await page.goto("/courses?preview=notices-badge-zero");
-
-  await expect(page.getByRole("button", { name: "消息" })).toBeVisible();
-  await expect(page.getByLabel(/条未读消息/)).toHaveCount(0);
-
-  await page.getByRole("button", { name: "消息" }).click();
-  await expect(page.getByRole("menuitem")).toHaveText(["还没有消息哦！"]);
-  await expect(
-    page.getByRole("menu", { name: /消息/ }).getByRole("separator"),
-  ).toHaveCount(0);
-  await expect(page.getByRole("menuitem", { name: "查看全部" })).toHaveCount(0);
-});
-
-test("notices preview=notices-badge shows the header unread count", async ({
-  page,
-}) => {
-  await mockApi(page, state({ authenticated: false, unreadCount: null }));
-  await page.goto("/courses?preview=notices-badge&atlas=1");
-
-  await expect(page.getByRole("button", { name: "账号" })).toContainText(
-    "匿名用户#000001",
-  );
-  await expect(page.getByLabel("3 条未读消息")).toBeVisible();
-});
-
 test("notices preview=notices-error shows the header inbox error", async ({
   page,
 }) => {

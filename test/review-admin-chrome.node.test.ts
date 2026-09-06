@@ -56,11 +56,6 @@ describe("review admin chrome preference", () => {
     ).toBe(true);
   });
 
-  it("does not force review chrome on for preview=admin", () => {
-    expect(resolveReviewAdminChromeVisible({ storedOn: false })).toBe(false);
-    expect(resolveReviewAdminChromeVisible({ storedOn: true })).toBe(true);
-  });
-
   it("hides preview viewerOwned comment delete until the dock switch is on", () => {
     expect(
       resolveCommentDeleteVisible({

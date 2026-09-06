@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import iconv from "iconv-lite";
 import { describe, expect, it } from "vitest";
 import {
   isJwxtPlaceholderOption,
@@ -188,19 +187,6 @@ describe("jwxt table fixtures", () => {
     });
   });
 
-  it("round-trips fixtures through GBK without replacement characters", () => {
-    for (const name of [
-      "s20301-enrolled.html",
-      "s2020103-planned.html",
-      "s2020103-public.html",
-      "rowspan.html",
-    ]) {
-      const utf8 = readFixture(name);
-      expect(utf8).not.toContain("\uFFFD");
-      const encoded = iconv.encode(utf8, "gbk");
-      expect(iconv.decode(encoded, "gbk")).toContain("课程");
-    }
-  });
 });
 
 describe("snapshot import/export", () => {

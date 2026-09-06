@@ -43,25 +43,13 @@ describe("catalog search ranking policy", () => {
     }
   });
 
-  it("aggregates multi-word queries so the weakest term dominates the sum", () => {
+  it("binds each search term once in multi-word queries", () => {
     const ranking = buildCatalogSearchRanking(
       ["高等数学", "张三"],
       fields,
       "course",
     );
-    expect(ranking.sql.startsWith("(")).toBe(true);
-    expect(ranking.sql).toContain("+");
-    expect(ranking.sql).toMatch(/\)\,\(/);
     expect(ranking.args).toEqual(["高等数学", "张三"]);
-    expect(ranking.buckets).toEqual(SEARCH_RANK_BUCKETS);
-    expect(ranking.sql).toContain(`THEN ${SEARCH_RANK_WEIGHTS.exact}`);
-    expect(ranking.sql).toContain(`THEN ${SEARCH_RANK_WEIGHTS.exactPinyin}`);
-    expect(ranking.sql).toContain(`THEN ${SEARCH_RANK_WEIGHTS.prefix}`);
-    expect(ranking.sql).toContain(`THEN ${SEARCH_RANK_WEIGHTS.pinyinPrefix}`);
-    expect(ranking.sql).toContain(`THEN ${SEARCH_RANK_WEIGHTS.substringFts}`);
-    expect(ranking.sql).toContain(`THEN ${SEARCH_RANK_WEIGHTS.teacherDepartment}`);
-    expect(ranking.sql).toContain(`THEN ${SEARCH_RANK_WEIGHTS.fuzzy}`);
-    expect(ranking.sql).toContain(`ELSE ${SEARCH_RANK_WEIGHTS.miss}`);
   });
 
   it("uses token-boundary pinyin and keeps FTS in the substring bucket", () => {

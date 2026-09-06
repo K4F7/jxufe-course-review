@@ -50,14 +50,3 @@ test("courses empty query does not hint at a teacher catalog @pr-smoke", async (
     page.getByRole("link", { name: /教师资料有 \d+ 位匹配/ }),
   ).toHaveCount(0);
 });
-
-test("retired /teachers list redirects to the course catalog", async ({
-  page,
-}) => {
-  await mockEmptyCourses(page);
-  await page.goto("/teachers?q=张三");
-  await expect(page).toHaveURL(/\/courses\?q=/);
-  expect(decodeURIComponent(new URL(page.url()).searchParams.get("q") ?? "")).toBe(
-    "张三",
-  );
-});

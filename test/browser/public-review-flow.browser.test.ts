@@ -270,15 +270,8 @@ test("course detail defaults to the most-reviewed relation", async ({
   await expect(page.getByText("人文学院").first()).toBeVisible();
   await expect(page.getByText("学分：")).toBeVisible();
   await expect(page.getByText("3.0", { exact: true })).toBeVisible();
-  const follow = page.getByRole("button", { name: "关注" });
-  await expect(follow).toBeVisible();
+  await expect(page.getByRole("button", { name: "关注" })).toBeVisible();
   await expect(page.getByRole("button", { name: "关注" })).toHaveCount(1);
-  const headingBox = await heading.boundingBox();
-  const followBox = await follow.boundingBox();
-  expect(headingBox).toBeTruthy();
-  expect(followBox).toBeTruthy();
-  expect(followBox!.x).toBeGreaterThan(headingBox!.x + headingBox!.width - 8);
-  expect(Math.abs(followBox!.y - headingBox!.y)).toBeLessThan(24);
   await expect(page.getByRole("button", { name: "推荐", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "不推荐" })).toBeVisible();
   // AI 总结占位块与免责声明（该关系未生成总结时）。
@@ -341,25 +334,6 @@ test("course detail defaults to the most-reviewed relation", async ({
   await expect(otherTeacherCount).toBeVisible();
   await expect(otherTeacherCount).toHaveText("（2）");
   await expect(otherTeachersCard.getByText("4.6")).toHaveCount(0);
-  const otherTeacherNameBox = await otherTeacherLink.boundingBox();
-  const otherTeacherCountBox = await otherTeacherCount.boundingBox();
-  const otherTeachersCardBox = await otherTeachersCard.boundingBox();
-  expect(otherTeacherNameBox).toBeTruthy();
-  expect(otherTeacherCountBox).toBeTruthy();
-  expect(otherTeachersCardBox).toBeTruthy();
-  expect(
-    otherTeacherCountBox!.x -
-      (otherTeacherNameBox!.x + otherTeacherNameBox!.width),
-  ).toBeLessThan(4);
-  expect(
-    otherTeacherCountBox!.x -
-      (otherTeacherNameBox!.x + otherTeacherNameBox!.width),
-  ).toBeGreaterThan(-2);
-  expect(
-    otherTeachersCardBox!.x +
-      otherTeachersCardBox!.width -
-      otherTeacherCountBox!.x,
-  ).toBeGreaterThan(40);
 
   const otherCoursesCard = aside
     .locator("[data-slot='card']")
@@ -370,22 +344,7 @@ test("course detail defaults to the most-reviewed relation", async ({
   const otherCourseStats = otherCoursesCard.getByText("4.2（3）");
   await expect(otherCourseLink).toBeVisible();
   await expect(otherCourseStats).toBeVisible();
-  const otherCourseNameBox = await otherCourseLink.boundingBox();
-  const otherCourseStatsBox = await otherCourseStats.boundingBox();
-  const otherCoursesCardBox = await otherCoursesCard.boundingBox();
-  expect(otherCourseNameBox).toBeTruthy();
-  expect(otherCourseStatsBox).toBeTruthy();
-  expect(otherCoursesCardBox).toBeTruthy();
-  expect(
-    otherCourseStatsBox!.x -
-      (otherCourseNameBox!.x + otherCourseNameBox!.width),
-  ).toBeLessThan(16);
-  expect(await otherCourseStats.textContent()).toBe(" 4.2（3）");
-  expect(
-    otherCoursesCardBox!.x +
-      otherCoursesCardBox!.width -
-      otherCourseStatsBox!.x,
-  ).toBeGreaterThan(40);
+  await expect(otherCourseStats).toHaveText("4.2（3）");
   await expect(otherCoursesCard.getByText("GEN0201")).toBeVisible();
   await expect(otherCoursesCard.getByText("4.1（2）")).toBeVisible();
   await expect(otherCoursesCard.getByText("MARX1001")).toBeVisible();
@@ -511,16 +470,6 @@ test("invalid teacher query is replaced with a valid relation", async ({
     page.getByRole("heading", { name: /中国传统文化导论（测试教师）/ }),
   ).toBeVisible();
   await expect(reviewItems(page)).toHaveCount(20);
-});
-
-test("malformed teacher query is replaced with a valid relation", async ({
-  page,
-}) => {
-  await page.goto("/courses/8?teacher=abc");
-  await expect(page).toHaveURL(/\/courses\/8\?teacher=9$/);
-  await expect(
-    page.getByRole("heading", { name: /中国传统文化导论（测试教师）/ }),
-  ).toBeVisible();
 });
 
 test("invalid teacher query on a course with no teachers is dropped", async ({

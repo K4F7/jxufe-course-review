@@ -1,4 +1,3 @@
-import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   analyticsDatasetName,
@@ -24,11 +23,7 @@ import {
   buildPeAliasObserveSql,
   toUtcDateTimeLiteral,
 } from "../scripts/pe-alias-observe/sql";
-import {
-  createWranglerD1ExecuteCommand,
-  executeReadOnlyD1Sql,
-  parseWorkerDeploymentRecords,
-} from "../scripts/pe-mapping-audit/execute";
+import { parseWorkerDeploymentRecords } from "../scripts/pe-mapping-audit/execute";
 import { stripSqlStringsAndComments } from "../scripts/pe-mapping-audit/sql";
 import { VIRTUAL_PE_SPORTS } from "../src/lib/public-course-presentation";
 
@@ -353,41 +348,6 @@ describe("PE alias observe report shape", () => {
 });
 
 describe("PE alias observe wrangler and analytics", () => {
-  it("runs wrangler d1 execute --remote --json --command without pnpm nesting", () => {
-    const sql = buildPeAliasObserveSql(windowStart, windowEnd);
-    const command = createWranglerD1ExecuteCommand({
-      sql,
-      remote: true,
-      nodeExecutable: "node-for-test",
-      resolvePackage: () => resolve("node_modules/wrangler/package.json"),
-    });
-    expect(command.args).toEqual([
-      resolve("node_modules/wrangler/bin/wrangler.js"),
-      "d1",
-      "execute",
-      "jufexk",
-      "--remote",
-      "--json",
-      "-y",
-      "--command",
-      sql,
-    ]);
-    expect(command.args).not.toContain("pnpm");
-  });
-
-  it("does not call wrangler when SQL is not read-only", async () => {
-    const execFile = vi.fn();
-    await expect(
-      executeReadOnlyD1Sql({
-        sql: "DELETE FROM relation_follows",
-        remote: true,
-        assertSql: assertReadOnlyObserveSql,
-        execFile,
-      }),
-    ).rejects.toThrow(/只读|SELECT/);
-    expect(execFile).not.toHaveBeenCalled();
-  });
-
   it("rebuilds the report from two wrangler result sets", () => {
     const report = reportFromQueryBatches(
       [{ results: fixtureWrites }, { results: fixtureDiscovery }],

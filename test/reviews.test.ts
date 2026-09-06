@@ -353,28 +353,16 @@ describe("review submission required scheme scores", () => {
     });
   });
 
-  it("accepts a half-star overall rating", async () => {
-    const courseId = await createBoundCourse("general", "HALF01");
+  it.each([4.5, 0.5])("accepts half-star overall rating %s", async (overall) => {
+    const courseId = await createBoundCourse("general", `HALF${overall}`);
     const response = await submit({
       courseId,
       teacherId: 1,
-      overall: 4.5,
+      overall,
       scores: CURRENT_SCORES,
     });
     expect(response.status).toBe(200);
-    expect(await insertedReview(courseId)).toMatchObject({ overall: 4.5 });
-  });
-
-  it("accepts a 0.5 overall rating", async () => {
-    const courseId = await createBoundCourse("general", "HALF05");
-    const response = await submit({
-      courseId,
-      teacherId: 1,
-      overall: 0.5,
-      scores: CURRENT_SCORES,
-    });
-    expect(response.status).toBe(200);
-    expect(await insertedReview(courseId)).toMatchObject({ overall: 0.5 });
+    expect(await insertedReview(courseId)).toMatchObject({ overall });
   });
 
   it("rejects a submission without an overall rating", async () => {

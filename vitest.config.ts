@@ -54,7 +54,10 @@ export default defineConfig(async () => {
     ],
     test: {
       include: ["test/**/*.test.ts"],
-      exclude: ["test/browser/**", "test/**/*.node.test.ts"],
+      exclude: [
+        "test/browser/**",
+        "test/**/*.node.test.ts",
+      ],
       setupFiles: ["./test/setup.ts"],
     },
   };
