@@ -60,7 +60,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec vitest run --no-file-parallelism --shard=${{ matrix.shard }}
+      - run: pnpm exec vitest run --no-file-parallelism --exclude test/global-search-prototype.test.ts --exclude test/prototype-local-seed.test.ts --shard=${{ matrix.shard }}
 
   browser:
     name: browser (${{ matrix.shard }})

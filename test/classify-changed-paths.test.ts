@@ -49,11 +49,11 @@ describe("classifyChangedPaths", () => {
       "wrangler types && tsc --noEmit && pnpm run test:static && vite build && wrangler deploy --dry-run --env=\"\"",
     );
     expect(packageScripts["test:static"]).toBe(
-      "vitest run --config vitest.node.config.ts && vitest run --config vitest.catalog-baseline.config.ts && vitest run --config vitest.program-plan.config.ts && vitest run --config vitest.secrets.config.ts",
+      "vitest run --config vitest.node.config.ts --exclude test/page-atlas.node.test.ts && vitest run --config vitest.secrets.config.ts",
     );
     expect(ciWorkflow.match(/shard: \["1\/2", "2\/2"\]/g)).toHaveLength(2);
     expect(ciWorkflow).toContain(
-      "pnpm exec vitest run --no-file-parallelism --shard=${{ matrix.shard }}",
+      "pnpm exec vitest run --no-file-parallelism --exclude test/global-search-prototype.test.ts --exclude test/prototype-local-seed.test.ts --shard=${{ matrix.shard }}",
     );
     expect(ciWorkflow.match(/fail-fast: true/g)).toHaveLength(2);
 
@@ -69,7 +69,7 @@ describe("classifyChangedPaths", () => {
     );
     expect(ciWorkflow).not.toContain("matrix.project");
     expect(playwrightConfig).toContain('name: "mobile-chromium"');
-    expect(playwrightConfig).toContain('testIgnore: ["admin*.browser.test.ts"]');
+    expect(playwrightConfig).toContain('"admin*.browser.test.ts"');
   });
 
   it("requires every selected CI matrix to complete successfully", () => {

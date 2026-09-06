@@ -440,7 +440,7 @@ test("self challenge keeps avatar username and body visible", async ({
   await expect(self.getByRole("link", { name: /匿名用户/ })).toBeVisible();
 });
 
-test("signed-in user can endorse and withdraw with pending and selected state", async ({
+test("signed-in user can endorse with Enter and withdraw with pending and selected state", async ({
   page,
 }) => {
   await mockApi(page, userStore());
@@ -455,7 +455,7 @@ test("signed-in user can endorse and withdraw with pending and selected state", 
     demo.getByRole("button", { name: "认可这条评价，当前 3 人认可" }),
   ).toBeEnabled();
 
-  await demo.getByRole("button", { name: "认可这条评价，当前 3 人认可" }).click();
+  await demo.getByRole("button", { name: "认可这条评价，当前 3 人认可" }).press("Enter");
   await expect(
     demo.getByRole("button", { name: "正在建立认可，当前 4 人认可" }),
   ).toBeDisabled();
@@ -511,7 +511,6 @@ test("slow network keeps pending and blocks repeat activation", async ({ page })
     name: "正在建立认可，当前 2 人认可",
   });
   await expect(pending).toBeDisabled();
-  await page.waitForTimeout(400);
   await expect(pending).toBeVisible();
   await expect(pending).toBeDisabled();
 });
@@ -568,25 +567,5 @@ test("signed-in user can challenge, switch away from recognition, and withdraw",
       .getByRole("button", {
         name: "已质疑，按下可撤回我的质疑，当前 1 人质疑",
       }),
-  ).toBeVisible();
-});
-
-test("keyboard Enter activates the standard Button", async ({ page }) => {
-  await mockApi(page, userStore());
-  await page.goto("/courses/8?teacher=9");
-  await expect(
-    entry(page, "我已认可的当前文字评价。").getByRole("button", {
-      name: "已认可，按下可撤回我的认可，当前 5 人认可",
-    }),
-  ).toBeVisible();
-  const demo = entry(page, "零计数当前文字评价。");
-  const button = demo.getByRole("button", { name: "认可这条评价，还没有人认可" });
-  await expect(button).toBeEnabled();
-  await button.focus();
-  await page.keyboard.press("Enter");
-  await expect(
-    demo.getByRole("button", {
-      name: "已认可，按下可撤回我的认可，当前 1 人认可",
-    }),
   ).toBeVisible();
 });

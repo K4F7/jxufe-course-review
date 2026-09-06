@@ -47,22 +47,16 @@ describe("sanitizeReviewNoteHtml whitelist", () => {
     );
   });
 
-  it("keeps only safe href protocols and forces rel/target on links", () => {
+  it.each([
+    ['<a href="javascript:alert(1)">链</a>', "<a>链</a>"],
+    ['<a href="java\tscript:alert(1)">链</a>', "<a>链</a>"],
+    ['<a href="java\n script:alert(1)">链</a>', "<a>链</a>"],
+    ['<a href="data:text/html,x">链</a>', "<a>链</a>"],
+  ])("keeps only safe href protocols: %s", (unsafe, expected) => {
     expect(sanitizeReviewNoteHtml('<a href="https://example.com">链</a>')).toBe(
       '<a href="https://example.com" target="_blank" rel="noopener noreferrer nofollow">链</a>',
     );
-    expect(
-      sanitizeReviewNoteHtml('<a href="javascript:alert(1)">链</a>'),
-    ).toBe("<a>链</a>");
-    expect(
-      sanitizeReviewNoteHtml('<a href="java\tscript:alert(1)">链</a>'),
-    ).toBe("<a>链</a>");
-    expect(
-      sanitizeReviewNoteHtml('<a href="java\n script:alert(1)">链</a>'),
-    ).toBe("<a>链</a>");
-    expect(sanitizeReviewNoteHtml('<a href="data:text/html,x">链</a>')).toBe(
-      "<a>链</a>",
-    );
+    expect(sanitizeReviewNoteHtml(unsafe)).toBe(expected);
   });
 
   it("escapes stray angle brackets and round-trips entities", () => {

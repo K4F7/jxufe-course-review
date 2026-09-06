@@ -10,11 +10,13 @@
 
 当前主验证矩阵共 5 个 runner：
 
-- 1 个 `web_static`：Wrangler types、TypeScript、Node / catalog / secrets Vitest、Vite build 和 Wrangler dry-run。
-- 2 个 `vitest_workers`：以两个分片运行全部 Workers Vitest，并保留 `--no-file-parallelism`。
+- 1 个 `web_static`：Wrangler types、TypeScript、生产 Node / secrets Vitest、Vite build 和 Wrangler dry-run。
+- 2 个 `vitest_workers`：以两个分片运行生产 Workers Vitest，并保留 `--no-file-parallelism`。
 - 2 个 `browser`：每个分片依次运行同一分片编号的完整桌面 Chromium 测试，以及带 `@mobile-smoke` 的移动 Chromium 专项。
 
-桌面 Chromium 承担完整浏览器功能覆盖；移动 CI 只承担响应式布局与移动交互 smoke。本地 `pnpm check` 继续运行完整 Workers、静态检查、完整桌面和完整移动端浏览器测试。
+桌面 Chromium 承担保留的生产浏览器功能覆盖；移动 CI 只承担响应式布局与移动交互 smoke。本地 `pnpm check` 运行生产 Workers、静态检查、完整桌面和移动 smoke，移动范围由 Playwright 项目的 `grep` 决定。
+
+原型测试只通过本地命令显式运行：`pnpm run test:prototype` 分别使用 Workers 和 Node 配置验证原型路由、本地种子与页面图集；`pnpm run test:prototype:browser` 验证搜索及认可控件原型。桌面和移动生产项目都排除这两个原型浏览器文件；移动项目有自己的 `testIgnore`，必须保留同样的排除项。历史导入兼容测试与 catalog-baseline / program-plan 采集器测试已退役，其专用测试配置和默认静态入口同步移除。
 
 主验证 job 复用 `.github/actions/setup-pnpm`：设置 Node 22，安装固定版本 Corepack，直接按 `package.json` 的 `packageManager` 安装 pnpm，再缓存 pnpm store。Corepack 安装关闭 npm audit/fund，不经过 pnpm/action-setup 的 self-installer 与版本切换。不同 runner 仍须分别 checkout 和 `pnpm install --frozen-lockfile`；不跨 runner 打包、传输 `node_modules`。
 

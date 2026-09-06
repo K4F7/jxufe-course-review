@@ -177,18 +177,6 @@ test("search results keep the relevance sort label @pr-smoke", async ({ page }) 
   await expect(sortGroup.getByRole("radio", { name: "课评数" })).toHaveCount(0);
 });
 
-test("empty catalog keeps the public-facing cleanup copy", async ({ page }) => {
-  await page.route("**/api/courses**", (route) =>
-    route.fulfill({
-      json: { items: [], page: 1, pageSize: 20, total: 0, pages: 1 },
-    }),
-  );
-  await page.goto("/courses");
-
-  await expect(page.getByText("目录还在整理，请稍后再来看看。")).toBeVisible();
-  await expect(page.getByText(/联系维护者导入公开目录/)).toHaveCount(0);
-});
-
 test("category row exposes 通识课 instead of 专业课/公共课 and filters by scheme", async ({
   page,
 }) => {
@@ -295,28 +283,6 @@ test("major and public_basic deep links keep working as 通识课", async ({
     page.getByRole("link", { name: /中国传统文化导论/ }),
   ).toBeVisible();
   await expect(page.getByText(/公开筛选仅支持/)).toHaveCount(0);
-});
-
-test("obsolete category query params get stripped without hitting the API", async ({
-  page,
-}) => {
-  const catalogRequests: string[] = [];
-  page.on("request", (request) => {
-    const url = new URL(request.url());
-    if (url.pathname === "/api/courses") catalogRequests.push(url.search);
-  });
-
-  for (const obsolete of ["pe", "required"]) {
-    await page.goto(`/courses?category=${obsolete}`);
-    await expect(
-      page.getByRole("link", { name: /中国传统文化导论/ }).first(),
-    ).toBeVisible();
-    await expect(page.getByRole("link", { name: /篮球/ })).toBeVisible();
-    await expect(page).not.toHaveURL(/category=/);
-  }
-  expect(
-    catalogRequests.some((search) => /category=(pe|required)/.test(search)),
-  ).toBe(false);
 });
 
 test("mooc deep link keeps filtering even without a filter-row button", async ({

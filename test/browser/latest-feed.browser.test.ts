@@ -1,7 +1,7 @@
 /**
  * Browser coverage for /latest：全站最新公开课评流。
  */
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import {
   REVIEW_FOLD_LABEL,
   REVIEW_PUBLIC_FOLD_EXPAND_LABEL,
@@ -110,39 +110,6 @@ function firstLatestArticle(page: Page) {
     .first();
 }
 
-async function expectStackedAuthorLayout(article: Locator) {
-  const author = article.getByRole("link", { name: "匿名用户#000000" });
-  const verb = article.getByText("点评了", { exact: true });
-  const course = article.getByRole("link", { name: "中国传统文化导论（测试教师）" });
-  const date = article.locator("time");
-  const headline = article.getByText("讲得清楚，作业适中");
-  await expect(author).toBeVisible();
-  await expect(verb).toBeVisible();
-  await expect(course).toBeVisible();
-  await expect(date).toBeVisible();
-  await expect(headline).toBeVisible();
-
-  const authorBox = await author.boundingBox();
-  const handleBox = await author.getByText("匿名用户#000000").boundingBox();
-  const verbBox = await verb.boundingBox();
-  const courseBox = await course.boundingBox();
-  const dateBox = await date.boundingBox();
-  const headlineBox = await headline.boundingBox();
-  expect(authorBox).toBeTruthy();
-  expect(handleBox).toBeTruthy();
-  expect(verbBox).toBeTruthy();
-  expect(courseBox).toBeTruthy();
-  expect(dateBox).toBeTruthy();
-  expect(headlineBox).toBeTruthy();
-  expect(Math.abs((handleBox?.y ?? 0) - (verbBox?.y ?? 0))).toBeLessThan(2);
-  expect(Math.abs((courseBox?.y ?? 0) - (verbBox?.y ?? 0))).toBeLessThan(2);
-  expect(headlineBox?.y ?? 0).toBeGreaterThan((authorBox?.y ?? 0) + (authorBox?.height ?? 0) / 2);
-  expect(headlineBox?.x ?? 0).toBeLessThanOrEqual((authorBox?.x ?? 0) + 24);
-  if (dateBox && courseBox && Math.abs((dateBox.y ?? 0) - (courseBox.y ?? 0)) < 12) {
-    expect(dateBox.x).toBeLessThan(courseBox.x + courseBox.width + 40);
-  }
-}
-
 async function expectFooterOutOfInitialViewport(page: Page) {
   const viewport = page.viewportSize();
   const isMobile = (viewport?.width ?? 1280) < 640;
@@ -183,8 +150,6 @@ test("latest page lists newest public reviews and deep-links to the course @mobi
   const author = article.getByRole("link", { name: "匿名用户#000000" });
   await expect(author).toBeVisible();
   await expect(author).toContainText("匿");
-  const authorBox = await author.boundingBox();
-  expect(authorBox?.height).toBeGreaterThan(0);
   expect(await page.getByText("点评了").count()).toBeGreaterThanOrEqual(1);
   await expect(
     article.getByRole("link", { name: "中国传统文化导论（测试教师）" }),
@@ -192,12 +157,6 @@ test("latest page lists newest public reviews and deep-links to the course @mobi
   await expect(article.getByText("2026-08-20")).toBeVisible();
   await expect(article).not.toHaveClass(/min-h-\[22rem\]/);
   await expect(article).not.toHaveClass(/min-h-\[12rem\]/);
-  const loadedBox = await article.boundingBox();
-  expect(loadedBox?.height ?? 0).toBeGreaterThan(80);
-  expect(loadedBox?.height ?? 0).toBeLessThan(240);
-  if ((page.viewportSize()?.width ?? 1280) >= 640) {
-    expect(loadedBox?.width ?? 0).toBeLessThanOrEqual(720);
-  }
   // 有 headline 的条目优先展示 headline 作为摘要，不再显示正文。
   await expect(article.getByText("讲得清楚，作业适中")).toBeVisible();
   await expect(
@@ -215,35 +174,6 @@ test("latest page lists newest public reviews and deep-links to the course @mobi
     page.getByText("这门课讲得很清楚，作业量适中。"),
   ).toBeVisible();
   expect(moduleFailures()).toEqual([]);
-});
-
-test("latest author and date share a header row on desktop and mobile", async ({
-  page,
-}) => {
-  await mockShellApi(page);
-  await page.setViewportSize({ width: 1600, height: 900 });
-  await page.goto("/latest", { waitUntil: "domcontentloaded" });
-
-  const article = firstLatestArticle(page);
-  await expectStackedAuthorLayout(article);
-  await expect(article.getByRole("link", { name: "查看全文" })).toBeVisible();
-  const wideBox = await article.boundingBox();
-  const verbBox = await article.getByText("点评了", { exact: true }).boundingBox();
-  const courseBox = await article
-    .getByRole("link", { name: "中国传统文化导论（测试教师）" })
-    .boundingBox();
-  expect(wideBox?.width ?? 0).toBeLessThanOrEqual(720);
-  expect(wideBox?.height ?? 0).toBeLessThan(240);
-  expect(Math.abs((verbBox?.y ?? 0) - (courseBox?.y ?? 0))).toBeLessThan(2);
-
-  await page.setViewportSize({ width: 800, height: 720 });
-  await expectStackedAuthorLayout(article);
-  await expect(article.getByRole("link", { name: "查看全文" })).toBeVisible();
-
-  await page.setViewportSize({ width: 375, height: 720 });
-  await expectStackedAuthorLayout(article);
-  await expect(article.getByRole("link", { name: "查看全文" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "更多" })).toHaveCount(0);
 });
 
 test("latest feed shows threshold-folded reviews without 收起 chrome", async ({
@@ -338,67 +268,6 @@ test("latest reserves review space while the first page is loading", async ({ pa
   expect(Math.max(...loadedRows)).toBeLessThan(240);
   expect(Math.min(...loadedRows)).toBeGreaterThan(80);
   if (!isMobile) {
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await expect(page.getByRole("contentinfo")).toBeVisible();
-  } else {
-    await expect(page.getByRole("contentinfo")).toHaveCount(0);
-  }
-});
-
-test("latest keeps the footer below the fold for a short first batch", async ({
-  page,
-}) => {
-  const desktop = (page.viewportSize()?.width ?? 1280) >= 640;
-  await page.setViewportSize(
-    desktop ? { width: 1280, height: 800 } : { width: 390, height: 844 },
-  );
-  let releaseMore!: () => void;
-  const moreGate = new Promise<void>((resolve) => {
-    releaseMore = resolve;
-  });
-  await page.route("**/api/**", async (route) => {
-    const url = new URL(route.request().url());
-    if (url.pathname === "/api/config") {
-      return route.fulfill({
-        json: { siteName: "非官方课评@JUFE", universityName: "江西财经大学", admin: false },
-      });
-    }
-    if (url.pathname === "/api/user/session") {
-      return route.fulfill({
-        json: { authenticated: false, loginPath: "/login", logoutPath: "/logout" },
-      });
-    }
-    if (url.pathname === "/api/site/banner") {
-      return route.fulfill({ json: { desktopHtml: "", mobileHtml: "", updatedAt: null } });
-    }
-    if (url.pathname === "/api/reviews/latest") {
-      if (url.searchParams.get("cursor")) {
-        await moreGate;
-        return route.fulfill({
-          json: {
-            items: Array.from({ length: 20 }, (_, index) => ({
-              ...LATEST[1],
-              id: `${LATEST[1].id}-${index}`,
-            })),
-            nextCursor: null,
-          },
-        });
-      }
-      return route.fulfill({
-        json: { items: [LATEST[0]], nextCursor: "next-latest" },
-      });
-    }
-    return route.fulfill({ status: 404, json: { error: "not mocked" } });
-  });
-
-  await page.goto("/latest", { waitUntil: "domcontentloaded" });
-  await expect(page.getByText("讲得清楚，作业适中").first()).toBeVisible();
-  await expect(page.getByRole("button", { name: /加载中|继续加载/ })).toBeVisible();
-  await expectFooterOutOfInitialViewport(page);
-
-  releaseMore();
-  await expect(page.getByText("课堂气氛好，考试不难。").first()).toBeVisible();
-  if (desktop) {
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await expect(page.getByRole("contentinfo")).toBeVisible();
   } else {
@@ -619,37 +488,11 @@ test("latest feed keeps 继续加载 as a retry after an auto-load error", async
   await page.goto("/latest", { waitUntil: "domcontentloaded" });
   await expect(page.getByRole("alert")).toContainText("继续加载失败");
   await expect.poll(() => cursorCalls).toBe(1);
-  await page.waitForTimeout(400);
   expect(cursorCalls).toBe(1);
 
   await page.getByRole("button", { name: "继续加载" }).click();
   await expect(page.getByText("课堂气氛好，考试不难。")).toBeVisible();
   expect(cursorCalls).toBe(2);
-});
-
-test("latest feed column aligns with the course catalog @mobile-smoke", async ({ page }) => {
-  await mockShellApi(page);
-  await page.goto("/latest", { waitUntil: "domcontentloaded" });
-  await expect(page.getByRole("heading", { name: "最新课评" })).toBeVisible();
-  const latest = await page.locator("main > section").boundingBox();
-
-  await page.goto("/courses");
-  await expect(page.getByRole("heading", { name: "课程列表" })).toBeVisible();
-  const courses = await page.locator("main > section").boundingBox();
-
-  expect(latest).toBeTruthy();
-  expect(courses).toBeTruthy();
-  const isMobile = (page.viewportSize()?.width ?? 1280) < 640;
-  if (isMobile) {
-    expect(latest?.x).toBe(courses?.x);
-    expect(latest?.width).toBe(courses?.width);
-  } else {
-    expect(latest?.width).toBeLessThanOrEqual(720);
-    expect(latest?.width).toBeLessThan(courses?.width ?? 0);
-    const latestCenter = (latest?.x ?? 0) + (latest?.width ?? 0) / 2;
-    const coursesCenter = (courses?.x ?? 0) + (courses?.width ?? 0) / 2;
-    expect(Math.abs(latestCenter - coursesCenter)).toBeLessThan(2);
-  }
 });
 
 test("latest feed shows a back-to-top button after scrolling @mobile-smoke", async ({

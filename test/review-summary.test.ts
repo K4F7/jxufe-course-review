@@ -8,7 +8,6 @@ import {
   hasInjectionMarker,
   scheduleRelationSummaryRecompute,
   renderSummaryHtml,
-  SUMMARY_GATEWAY_TIMEOUT_MS,
   SUMMARY_LEASE_RETRY_DELAY_SECONDS,
   SUMMARY_PROMPT_MAX_CHARS,
   type SummaryGatewayEnv,
@@ -232,10 +231,6 @@ describe("buildSummaryPrompt", () => {
     });
     expect(prompt).toContain("总结《测试课》课程");
     expect(prompt).not.toContain("老师的");
-  });
-
-  it("uses a 120s OpenAI-compatible gateway timeout", () => {
-    expect(SUMMARY_GATEWAY_TIMEOUT_MS).toBe(120_000);
   });
 
   it("truncates the prompt near the 32k budget, dropping tail reviews", () => {

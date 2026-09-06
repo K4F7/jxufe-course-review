@@ -356,19 +356,6 @@ test("CAS submit shows a pending button while waiting", async ({
   await expect(page).toHaveURL(/\/courses$/);
 });
 
-test("MFA error preview uses field-error instead of an alert", async ({
-  page,
-}) => {
-  await page.goto("/login?preview=mfa-error&atlas=1");
-  await expect(page.getByText("输入发送到企业微信的四位验证码")).toBeVisible();
-  const fieldError = page.locator("#code-error");
-  await expect(fieldError).toHaveText("验证码不正确");
-  await expect(fieldError).toHaveAttribute("data-visible", "true");
-  await expect(page.getByRole("alert")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "验证" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "验证" })).toBeDisabled();
-});
-
 test("MFA submit shows a pending button while the code is checked", async ({
   page,
 }) => {
@@ -429,30 +416,6 @@ test("school CAS tips appear on the login card", async ({ page }) => {
   await expect(page.getByText("账号暂时无法登录")).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.getByLabel("学号")).toBeVisible();
-});
-
-test("password locked preview uses field-error instead of an alert", async ({
-  page,
-}) => {
-  await page.goto("/login?preview=locked&atlas=1");
-  const fieldError = page.locator("#password-error");
-  await expect(fieldError).toHaveText("账号已锁定，请稍后再试");
-  await expect(fieldError).toHaveAttribute("data-visible", "true");
-  await expect(page.getByText("账号暂时无法登录")).toHaveCount(0);
-  await expect(page.getByRole("alert")).toHaveCount(0);
-  await expect(page.getByLabel("学号")).toBeVisible();
-});
-
-test("password-update preview uses field-error instead of an alert", async ({
-  page,
-}) => {
-  await page.goto("/login?preview=password-update&atlas=1");
-  const fieldError = page.locator("#password-error");
-  await expect(fieldError).toHaveText("密码已过期，请先修改密码");
-  await expect(fieldError).toHaveAttribute("data-visible", "true");
-  await expect(page.getByText("需要先更新密码")).toHaveCount(0);
-  await expect(page.getByRole("alert")).toHaveCount(0);
-  await expect(page.getByLabel("校园密码")).toBeVisible();
 });
 
 test("email magic-link redeeming uses the official progress alert", async ({

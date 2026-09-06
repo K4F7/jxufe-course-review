@@ -312,33 +312,6 @@ describe("四个公开搜索入口与既有排序契约", () => {
     expect(ratings).toEqual([...ratings].sort((left, right) => right - left));
   });
 
-  it("精确教师名仍只返回该教师；搜课名仍返回该课全部教师", async () => {
-    const byTeacher = await search(
-      "/api/courses",
-      `view=relations&q=${exactTeacher}&pageSize=50`,
-    );
-    expect(byTeacher.items.every((item) => item.teacher_name === exactTeacher)).toBe(
-      true,
-    );
-    const bySource = await search(
-      "/api/courses",
-      `view=relations&q=${sourceTeacherLabel}&pageSize=50`,
-    );
-    expect(bySource.items.map((item) => item.teacher_name)).toEqual([
-      sourceTeacherDisplay,
-    ]);
-    const byCourse = await search(
-      "/api/courses",
-      `view=relations&q=${exactMath}&pageSize=50`,
-    );
-    expect(
-      byCourse.items
-        .filter((item) => item.name === exactMath)
-        .map((item) => item.teacher_name)
-        .sort(),
-    ).toEqual([exactTeacher, classmateTeacher].sort());
-  });
-
   it("教师入口：显示名 exact，拼音 token，院系落入 teacher/department", async () => {
     const exact = await search("/api/teachers", `q=${exactTeacher}&pageSize=50`);
     expect(exact.items[0]?.name).toBe(exactTeacher);

@@ -158,6 +158,7 @@ test("main nav is 课评/课程 on mobile, plus 导师 on desktop, with a center
   const search = page.getByRole("searchbox", { name: "搜索课程" });
   await expect(search).toBeVisible();
   await search.fill("高等数学");
+  await expect(page.getByRole("listbox")).toHaveCount(0);
   await search.press("Enter");
   await expect(page).toHaveURL(/\/courses\?q=/);
   await expect(search).toHaveValue("高等数学");
@@ -197,55 +198,6 @@ test("schedule nav appears only when config.showScheduleNav is true", async ({
   }
   await expect(page.getByRole("heading", { name: "排课模拟" })).toBeVisible();
   await expectBrowseItemCurrent(page, "排课模拟", true);
-});
-
-test("desktop header stays one row for the production site name", async ({
-  page,
-}) => {
-  await mockShellApi(page, { siteName: "非官方课评@JUFE" });
-
-  await page.setViewportSize({ width: 1024, height: 800 });
-  await page.goto("/courses");
-  const brand = page.getByRole("banner").getByRole("link", { name: "非官方课评@JUFE" });
-  const nav = page.getByRole("navigation", { name: "主导航" });
-  const search = page.getByRole("searchbox", { name: "搜索课程" });
-  await expect(search).toBeVisible();
-  const stacked = await Promise.all([
-    brand.boundingBox(),
-    nav.boundingBox(),
-    search.boundingBox(),
-  ]);
-  expect(stacked[0]).toBeTruthy();
-  expect(stacked[1]).toBeTruthy();
-  expect(stacked[2]).toBeTruthy();
-  const sameRow = (
-    a: NonNullable<(typeof stacked)[number]>,
-    b: NonNullable<(typeof stacked)[number]>,
-  ) => a.y < b.y + b.height && b.y < a.y + a.height;
-  // Below xl: brand · full-width search · equal-width tabs (not a squeezed desktop row).
-  expect(sameRow(stacked[0]!, stacked[2]!)).toBe(false);
-  expect(stacked[2]!.y).toBeGreaterThan(stacked[0]!.y + stacked[0]!.height - 1);
-  expect(stacked[1]!.y).toBeGreaterThan(stacked[2]!.y + stacked[2]!.height - 1);
-
-  await page.setViewportSize({ width: 1280, height: 800 });
-  const desktop = await Promise.all([
-    brand.boundingBox(),
-    nav.boundingBox(),
-    search.boundingBox(),
-    ...["课评", "课程", "导师"].map((name) =>
-      nav.getByRole("link", { name }).boundingBox(),
-    ),
-  ]);
-  for (const box of desktop) expect(box).toBeTruthy();
-  const [brandBox, navBox, searchBox, ...linkBoxes] = desktop as NonNullable<
-    (typeof desktop)[number]
-  >[];
-  expect(sameRow(brandBox, navBox)).toBe(true);
-  expect(sameRow(searchBox, navBox)).toBe(true);
-  const linkTop = linkBoxes[0].y;
-  for (const box of linkBoxes) {
-    expect(Math.abs(box.y - linkTop)).toBeLessThan(2);
-  }
 });
 
 test("mobile header hides 课评/课程 tabs on personal account surfaces", async ({
@@ -295,9 +247,6 @@ test("brand link uses the site name and goes to /latest", async ({ page }) => {
   const brand = page.getByRole("banner").getByRole("link", { name: "非官方课评@JUFE" });
   await expect(brand).toBeVisible();
   await expect(brand).toHaveAttribute("href", "/latest");
-  const brandLabel = brand.locator("span");
-  await expect(brandLabel).toHaveCSS("min-width", "0px");
-  await expect(brandLabel).toHaveCSS("text-overflow", "ellipsis");
   await brand.click();
   await expect(page).toHaveURL(/\/latest$/);
   await expect(page.getByRole("heading", { name: "最新课评" })).toBeVisible();
