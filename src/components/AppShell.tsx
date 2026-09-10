@@ -434,7 +434,9 @@ function DefaultShell({
         {children}
       </main>
 
-      <SiteFooter siteName={siteName} universityName={universityName} />
+      {location.pathname === "/latest" || location.pathname === "/" ? null : (
+        <SiteFooter siteName={siteName} universityName={universityName} />
+      )}
     </div>
   );
 }
