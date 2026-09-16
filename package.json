@@ -60,7 +60,7 @@
   "dependencies": {
     "@gravity-ui/icons": "^2.21.0",
     "@heroui/react": "^3.2.4",
-    "@heroui/styles": "^3.2.4",
+    "@heroui/styles": "^3.2.5",
     "dompurify": "^3.4.15",
     "fuse.js": "7.5.0",
     "hono": "4.13.7",
