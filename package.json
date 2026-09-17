@@ -75,7 +75,7 @@
     "@cloudflare/vitest-pool-workers": "0.22.0",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "26.2.0",
+    "@types/node": "26.5.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^6.1.1",
