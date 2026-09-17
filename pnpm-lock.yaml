@@ -16,10 +16,10 @@ importers:
     dependencies:
       '@gravity-ui/icons':
         specifier: ^2.21.0
-        version: 2.21.0(react@19.2.8)
+        version: 2.21.0(react@19.3.0)
       '@heroui/react':
         specifier: ^3.2.4
-        version: 3.2.4(@react-aria/i18n@3.13.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@react-aria/ssr@3.10.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@react-aria/utils@3.34.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@react-spectrum/provider@3.11.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-aria-components@1.20.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-aria@3.51.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+        version: 3.2.4(@react-aria/i18n@3.13.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0))(@react-aria/ssr@3.10.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0))(@react-aria/utils@3.34.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0))(@react-spectrum/provider@3.11.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0))(@types/react-dom@19.2.5(@types/react@19.3.0))(@types/react@19.3.0)(react-aria-components@1.20.0(react-dom@19.2.8(react@19.3.0))(react@19.3.0))(react-aria@3.51.0(react-dom@19.2.8(react@19.3.0))(react@19.3.0))(react-dom@19.2.8(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)
       '@heroui/styles':
         specifier: ^3.2.5
         version: 3.2.5(tailwind-merge@3.4.0)(tailwindcss@4.3.3)
@@ -36,14 +36,14 @@ importers:
         specifier: ^3.29.2
         version: 3.29.2(patch_hash=afd2038b9bdf1b02ea7b9b0607702efa791983804ffd8c3bda02f4595cb330e2)
       react:
-        specifier: ^19.2.8
-        version: 19.2.8
+        specifier: ^19.3.0
+        version: 19.3.0
       react-dom:
         specifier: ^19.2.8
-        version: 19.2.8(react@19.2.8)
+        version: 19.2.8(react@19.3.0)
       react-router-dom:
         specifier: ^7.18.3
-        version: 7.18.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 7.18.3(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
       zod:
         specifier: 4.5.4
         version: 4.5.4
@@ -64,11 +64,11 @@ importers:
         specifier: 26.5.1
         version: 26.5.1
       '@types/react':
-        specifier: ^19.2.18
-        version: 19.2.18
+        specifier: ^19.3.0
+        version: 19.3.0
       '@types/react-dom':
         specifier: ^19.2.5
-        version: 19.2.5(@types/react@19.2.18)
+        version: 19.2.5(@types/react@19.3.0)
       '@vitejs/plugin-react':
         specifier: ^6.1.1
         version: 6.1.1(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13))
@@ -1322,8 +1322,8 @@ packages:
     peerDependencies:
       '@types/react': ^19.2.0
 
-  '@types/react@19.2.18':
-    resolution: {integrity: sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w==}
+  '@types/react@19.3.0':
+    resolution: {integrity: sha512-N0rFCuH9YoxG9/m61l9MfpJKfmLOVU0em7ipIz6TRgSSkvReLB9vL85GB+yr8Bs5leqpvg96JSwF4ZS1s4viQg==}
 
   '@types/trusted-types@2.0.7':
     resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
@@ -1878,8 +1878,8 @@ packages:
       react: '>=16.6.0'
       react-dom: '>=16.6.0'
 
-  react@19.2.8:
-    resolution: {integrity: sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw==}
+  react@19.3.0:
+    resolution: {integrity: sha512-E8LUcbtBWt20bbl2YoHfx4ZDBdxVTfOKtCZn9cDSJ4l6/nuoApcpIBcj47t2wZoVX8g2ZHuMHbiShgCR1T5Sog==}
     engines: {node: '>=0.10.0'}
 
   rolldown@1.2.8:
@@ -2144,32 +2144,32 @@ packages:
 
 snapshots:
 
-  '@adobe/react-spectrum-ui@1.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@adobe/react-spectrum-ui@1.2.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0)':
     dependencies:
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
+      react: 19.3.0
+      react-dom: 19.2.8(react@19.3.0)
 
-  '@adobe/react-spectrum-workflow@2.3.5(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@adobe/react-spectrum-workflow@2.3.5(react-dom@19.2.8(react@19.3.0))(react@19.3.0)':
     dependencies:
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
+      react: 19.3.0
+      react-dom: 19.2.8(react@19.3.0)
 
-  '@adobe/react-spectrum@3.47.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@adobe/react-spectrum@3.47.3(react-dom@19.2.8(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@internationalized/date': 3.12.3
-      '@react-types/shared': 3.36.1(react@19.2.8)
-      '@spectrum-icons/ui': 3.7.1(@adobe/react-spectrum@3.47.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@spectrum-icons/workflow': 4.3.1(@adobe/react-spectrum@3.47.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@react-types/shared': 3.36.1(react@19.3.0)
+      '@spectrum-icons/ui': 3.7.1(@adobe/react-spectrum@3.47.3(react-dom@19.2.8(react@19.3.0))(react@19.3.0))(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      '@spectrum-icons/workflow': 4.3.1(@adobe/react-spectrum@3.47.3(react-dom@19.2.8(react@19.3.0))(react@19.3.0))(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
       '@swc/helpers': 0.5.23
       client-only: 0.0.1
       clsx: 2.1.1
-      react: 19.2.8
-      react-aria: 3.51.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      react-aria-components: 1.20.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      react-dom: 19.2.8(react@19.2.8)
-      react-stately: 3.49.0(react@19.2.8)
-      react-transition-group: 4.4.5(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      use-sync-external-store: 1.6.0(react@19.2.8)
+      react: 19.3.0
+      react-aria: 3.51.0(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      react-aria-components: 1.20.0(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      react-dom: 19.2.8(react@19.3.0)
+      react-stately: 3.49.0(react@19.3.0)
+      react-transition-group: 4.4.5(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      use-sync-external-store: 1.6.0(react@19.3.0)
 
   '@axe-core/playwright@4.13.0(playwright-core@1.63.0)':
     dependencies:
@@ -2428,27 +2428,27 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  '@gravity-ui/icons@2.21.0(react@19.2.8)':
+  '@gravity-ui/icons@2.21.0(react@19.3.0)':
     dependencies:
       tslib: 2.8.1
     optionalDependencies:
-      react: 19.2.8
+      react: 19.3.0
 
-  '@heroui/react@3.2.4(@react-aria/i18n@3.13.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@react-aria/ssr@3.10.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@react-aria/utils@3.34.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@react-spectrum/provider@3.11.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-aria-components@1.20.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-aria@3.51.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
+  '@heroui/react@3.2.4(@react-aria/i18n@3.13.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0))(@react-aria/ssr@3.10.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0))(@react-aria/utils@3.34.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0))(@react-spectrum/provider@3.11.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0))(@types/react-dom@19.2.5(@types/react@19.3.0))(@types/react@19.3.0)(react-aria-components@1.20.0(react-dom@19.2.8(react@19.3.0))(react@19.3.0))(react-aria@3.51.0(react-dom@19.2.8(react@19.3.0))(react@19.3.0))(react-dom@19.2.8(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)':
     dependencies:
       '@heroui/styles': 3.2.4(tailwind-merge@3.4.0)(tailwindcss@4.3.3)
-      '@radix-ui/react-avatar': 1.1.11(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@react-aria/i18n': 3.13.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@react-aria/ssr': 3.10.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@react-aria/utils': 3.34.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@react-stately/utils': 3.12.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@react-types/color': 3.2.0(@react-spectrum/provider@3.11.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@react-types/shared': 3.36.1(react@19.2.8)
-      input-otp: 1.4.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      react: 19.2.8
-      react-aria: 3.51.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      react-aria-components: 1.20.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      react-dom: 19.2.8(react@19.2.8)
+      '@radix-ui/react-avatar': 1.1.11(@types/react-dom@19.2.5(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      '@react-aria/i18n': 3.13.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      '@react-aria/ssr': 3.10.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      '@react-aria/utils': 3.34.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      '@react-stately/utils': 3.12.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      '@react-types/color': 3.2.0(@react-spectrum/provider@3.11.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0))(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      '@react-types/shared': 3.36.1(react@19.3.0)
+      input-otp: 1.4.2(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      react: 19.3.0
+      react-aria: 3.51.0(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      react-aria-components: 1.20.0(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      react-dom: 19.2.8(react@19.3.0)
       tailwind-merge: 3.4.0
       tailwind-variants: 3.3.1(tailwind-merge@3.4.0)(tailwindcss@4.3.3)
       tailwindcss: 4.3.3
@@ -2744,139 +2744,139 @@ snapshots:
 
   '@poppinss/exception@1.2.3': {}
 
-  '@radix-ui/react-avatar@1.1.11(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@radix-ui/react-avatar@1.1.11(@types/react-dom@19.2.5(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.2.8(react@19.3.0))(react@19.3.0)':
     dependencies:
-      '@radix-ui/react-context': 1.1.3(@types/react@19.2.18)(react@19.2.8)
-      '@radix-ui/react-primitive': 2.1.4(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@radix-ui/react-use-callback-ref': 1.1.1(@types/react@19.2.18)(react@19.2.8)
-      '@radix-ui/react-use-is-hydrated': 0.1.0(@types/react@19.2.18)(react@19.2.8)
-      '@radix-ui/react-use-layout-effect': 1.1.1(@types/react@19.2.18)(react@19.2.8)
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
+      '@radix-ui/react-context': 1.1.3(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.4(@types/react-dom@19.2.5(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-use-callback-ref': 1.1.1(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-is-hydrated': 0.1.0(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-layout-effect': 1.1.1(@types/react@19.3.0)(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.2.8(react@19.3.0)
     optionalDependencies:
-      '@types/react': 19.2.18
-      '@types/react-dom': 19.2.5(@types/react@19.2.18)
+      '@types/react': 19.3.0
+      '@types/react-dom': 19.2.5(@types/react@19.3.0)
 
-  '@radix-ui/react-compose-refs@1.1.2(@types/react@19.2.18)(react@19.2.8)':
+  '@radix-ui/react-compose-refs@1.1.2(@types/react@19.3.0)(react@19.3.0)':
     dependencies:
-      react: 19.2.8
+      react: 19.3.0
     optionalDependencies:
-      '@types/react': 19.2.18
+      '@types/react': 19.3.0
 
-  '@radix-ui/react-context@1.1.3(@types/react@19.2.18)(react@19.2.8)':
+  '@radix-ui/react-context@1.1.3(@types/react@19.3.0)(react@19.3.0)':
     dependencies:
-      react: 19.2.8
+      react: 19.3.0
     optionalDependencies:
-      '@types/react': 19.2.18
+      '@types/react': 19.3.0
 
-  '@radix-ui/react-primitive@2.1.4(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@radix-ui/react-primitive@2.1.4(@types/react-dom@19.2.5(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.2.8(react@19.3.0))(react@19.3.0)':
     dependencies:
-      '@radix-ui/react-slot': 1.2.4(@types/react@19.2.18)(react@19.2.8)
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
+      '@radix-ui/react-slot': 1.2.4(@types/react@19.3.0)(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.2.8(react@19.3.0)
     optionalDependencies:
-      '@types/react': 19.2.18
-      '@types/react-dom': 19.2.5(@types/react@19.2.18)
+      '@types/react': 19.3.0
+      '@types/react-dom': 19.2.5(@types/react@19.3.0)
 
-  '@radix-ui/react-slot@1.2.4(@types/react@19.2.18)(react@19.2.8)':
+  '@radix-ui/react-slot@1.2.4(@types/react@19.3.0)(react@19.3.0)':
     dependencies:
-      '@radix-ui/react-compose-refs': 1.1.2(@types/react@19.2.18)(react@19.2.8)
-      react: 19.2.8
+      '@radix-ui/react-compose-refs': 1.1.2(@types/react@19.3.0)(react@19.3.0)
+      react: 19.3.0
     optionalDependencies:
-      '@types/react': 19.2.18
+      '@types/react': 19.3.0
 
-  '@radix-ui/react-use-callback-ref@1.1.1(@types/react@19.2.18)(react@19.2.8)':
+  '@radix-ui/react-use-callback-ref@1.1.1(@types/react@19.3.0)(react@19.3.0)':
     dependencies:
-      react: 19.2.8
+      react: 19.3.0
     optionalDependencies:
-      '@types/react': 19.2.18
+      '@types/react': 19.3.0
 
-  '@radix-ui/react-use-is-hydrated@0.1.0(@types/react@19.2.18)(react@19.2.8)':
+  '@radix-ui/react-use-is-hydrated@0.1.0(@types/react@19.3.0)(react@19.3.0)':
     dependencies:
-      react: 19.2.8
-      use-sync-external-store: 1.6.0(react@19.2.8)
+      react: 19.3.0
+      use-sync-external-store: 1.6.0(react@19.3.0)
     optionalDependencies:
-      '@types/react': 19.2.18
+      '@types/react': 19.3.0
 
-  '@radix-ui/react-use-layout-effect@1.1.1(@types/react@19.2.18)(react@19.2.8)':
+  '@radix-ui/react-use-layout-effect@1.1.1(@types/react@19.3.0)(react@19.3.0)':
     dependencies:
-      react: 19.2.8
+      react: 19.3.0
     optionalDependencies:
-      '@types/react': 19.2.18
+      '@types/react': 19.3.0
 
-  '@react-aria/color@3.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@react-aria/color@3.2.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@swc/helpers': 0.5.23
-      react: 19.2.8
-      react-aria: 3.51.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      react-dom: 19.2.8(react@19.2.8)
+      react: 19.3.0
+      react-aria: 3.51.0(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      react-dom: 19.2.8(react@19.3.0)
 
-  '@react-aria/i18n@3.13.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@react-aria/i18n@3.13.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@internationalized/date': 3.12.3
       '@internationalized/message': 3.1.10
       '@internationalized/string': 3.2.10
       '@swc/helpers': 0.5.23
-      react: 19.2.8
-      react-aria: 3.51.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      react-dom: 19.2.8(react@19.2.8)
+      react: 19.3.0
+      react-aria: 3.51.0(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      react-dom: 19.2.8(react@19.3.0)
 
-  '@react-aria/ssr@3.10.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@react-aria/ssr@3.10.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@swc/helpers': 0.5.23
-      react: 19.2.8
-      react-aria: 3.51.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      react-dom: 19.2.8(react@19.2.8)
+      react: 19.3.0
+      react-aria: 3.51.0(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      react-dom: 19.2.8(react@19.3.0)
 
-  '@react-aria/utils@3.34.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@react-aria/utils@3.34.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@swc/helpers': 0.5.23
-      react: 19.2.8
-      react-aria: 3.51.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      react-dom: 19.2.8(react@19.2.8)
-      react-stately: 3.49.0(react@19.2.8)
+      react: 19.3.0
+      react-aria: 3.51.0(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      react-dom: 19.2.8(react@19.3.0)
+      react-stately: 3.49.0(react@19.3.0)
 
-  '@react-spectrum/color@3.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@react-spectrum/color@3.2.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0)':
     dependencies:
-      '@adobe/react-spectrum': 3.47.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@adobe/react-spectrum': 3.47.3(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
       '@swc/helpers': 0.5.23
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-      react-stately: 3.49.0(react@19.2.8)
+      react: 19.3.0
+      react-dom: 19.2.8(react@19.3.0)
+      react-stately: 3.49.0(react@19.3.0)
 
-  '@react-spectrum/provider@3.11.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@react-spectrum/provider@3.11.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0)':
     dependencies:
-      '@adobe/react-spectrum': 3.47.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@adobe/react-spectrum': 3.47.3(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
       '@swc/helpers': 0.5.23
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
+      react: 19.3.0
+      react-dom: 19.2.8(react@19.3.0)
 
-  '@react-stately/color@3.10.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
-    dependencies:
-      '@swc/helpers': 0.5.23
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-      react-stately: 3.49.0(react@19.2.8)
-
-  '@react-stately/utils@3.12.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@react-stately/color@3.10.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@swc/helpers': 0.5.23
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-      react-stately: 3.49.0(react@19.2.8)
+      react: 19.3.0
+      react-dom: 19.2.8(react@19.3.0)
+      react-stately: 3.49.0(react@19.3.0)
 
-  '@react-types/color@3.2.0(@react-spectrum/provider@3.11.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@react-stately/utils@3.12.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0)':
     dependencies:
-      '@react-aria/color': 3.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@react-spectrum/color': 3.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@react-spectrum/provider': 3.11.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@react-stately/color': 3.10.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
+      '@swc/helpers': 0.5.23
+      react: 19.3.0
+      react-dom: 19.2.8(react@19.3.0)
+      react-stately: 3.49.0(react@19.3.0)
 
-  '@react-types/shared@3.36.1(react@19.2.8)':
+  '@react-types/color@3.2.0(@react-spectrum/provider@3.11.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0))(react-dom@19.2.8(react@19.3.0))(react@19.3.0)':
     dependencies:
-      react: 19.2.8
+      '@react-aria/color': 3.2.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      '@react-spectrum/color': 3.2.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      '@react-spectrum/provider': 3.11.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      '@react-stately/color': 3.10.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.2.8(react@19.3.0)
+
+  '@react-types/shared@3.36.1(react@19.3.0)':
+    dependencies:
+      react: 19.3.0
 
   '@rolldown/binding-android-arm-eabi@1.2.8':
     optional: true
@@ -2927,22 +2927,22 @@ snapshots:
 
   '@sindresorhus/is@7.2.0': {}
 
-  '@spectrum-icons/ui@3.7.1(@adobe/react-spectrum@3.47.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@spectrum-icons/ui@3.7.1(@adobe/react-spectrum@3.47.3(react-dom@19.2.8(react@19.3.0))(react@19.3.0))(react-dom@19.2.8(react@19.3.0))(react@19.3.0)':
     dependencies:
-      '@adobe/react-spectrum': 3.47.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@adobe/react-spectrum-ui': 1.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@adobe/react-spectrum': 3.47.3(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      '@adobe/react-spectrum-ui': 1.2.1(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
       '@babel/runtime': 7.29.7
       '@swc/helpers': 0.5.23
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
+      react: 19.3.0
+      react-dom: 19.2.8(react@19.3.0)
 
-  '@spectrum-icons/workflow@4.3.1(@adobe/react-spectrum@3.47.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@spectrum-icons/workflow@4.3.1(@adobe/react-spectrum@3.47.3(react-dom@19.2.8(react@19.3.0))(react@19.3.0))(react-dom@19.2.8(react@19.3.0))(react@19.3.0)':
     dependencies:
-      '@adobe/react-spectrum': 3.47.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@adobe/react-spectrum-workflow': 2.3.5(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@adobe/react-spectrum': 3.47.3(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      '@adobe/react-spectrum-workflow': 2.3.5(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
       '@swc/helpers': 0.5.23
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
+      react: 19.3.0
+      react-dom: 19.2.8(react@19.3.0)
 
   '@speed-highlight/core@1.2.24': {}
 
@@ -3033,11 +3033,11 @@ snapshots:
     dependencies:
       undici-types: 8.9.0
 
-  '@types/react-dom@19.2.5(@types/react@19.2.18)':
+  '@types/react-dom@19.2.5(@types/react@19.3.0)':
     dependencies:
-      '@types/react': 19.2.18
+      '@types/react': 19.3.0
 
-  '@types/react@19.2.18':
+  '@types/react@19.3.0':
     dependencies:
       csstype: 3.2.3
 
@@ -3277,10 +3277,10 @@ snapshots:
     dependencies:
       safer-buffer: 2.1.2
 
-  input-otp@1.4.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
+  input-otp@1.4.2(react-dom@19.2.8(react@19.3.0))(react@19.3.0):
     dependencies:
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
+      react: 19.3.0
+      react-dom: 19.2.8(react@19.3.0)
 
   intl-messageformat@10.7.18:
     dependencies:
@@ -3460,73 +3460,73 @@ snapshots:
       object-assign: 4.1.1
       react-is: 16.13.1
 
-  react-aria-components@1.20.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
+  react-aria-components@1.20.0(react-dom@19.2.8(react@19.3.0))(react@19.3.0):
     dependencies:
       '@internationalized/date': 3.12.3
       '@internationalized/string': 3.2.10
-      '@react-types/shared': 3.36.1(react@19.2.8)
+      '@react-types/shared': 3.36.1(react@19.3.0)
       '@swc/helpers': 0.5.23
       client-only: 0.0.1
-      react: 19.2.8
-      react-aria: 3.51.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      react-dom: 19.2.8(react@19.2.8)
-      react-stately: 3.49.0(react@19.2.8)
+      react: 19.3.0
+      react-aria: 3.51.0(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
+      react-dom: 19.2.8(react@19.3.0)
+      react-stately: 3.49.0(react@19.3.0)
 
-  react-aria@3.51.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
+  react-aria@3.51.0(react-dom@19.2.8(react@19.3.0))(react@19.3.0):
     dependencies:
       '@internationalized/date': 3.12.3
       '@internationalized/number': 3.6.7
       '@internationalized/string': 3.2.10
-      '@react-types/shared': 3.36.1(react@19.2.8)
+      '@react-types/shared': 3.36.1(react@19.3.0)
       '@swc/helpers': 0.5.23
       aria-hidden: 1.2.6
       clsx: 2.1.1
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-      react-stately: 3.49.0(react@19.2.8)
-      use-sync-external-store: 1.6.0(react@19.2.8)
+      react: 19.3.0
+      react-dom: 19.2.8(react@19.3.0)
+      react-stately: 3.49.0(react@19.3.0)
+      use-sync-external-store: 1.6.0(react@19.3.0)
 
-  react-dom@19.2.8(react@19.2.8):
+  react-dom@19.2.8(react@19.3.0):
     dependencies:
-      react: 19.2.8
+      react: 19.3.0
       scheduler: 0.27.0
 
   react-is@16.13.1: {}
 
-  react-router-dom@7.18.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
+  react-router-dom@7.18.3(react-dom@19.2.8(react@19.3.0))(react@19.3.0):
     dependencies:
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-      react-router: 7.18.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      react: 19.3.0
+      react-dom: 19.2.8(react@19.3.0)
+      react-router: 7.18.3(react-dom@19.2.8(react@19.3.0))(react@19.3.0)
 
-  react-router@7.18.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
+  react-router@7.18.3(react-dom@19.2.8(react@19.3.0))(react@19.3.0):
     dependencies:
       cookie: 1.1.1
-      react: 19.2.8
+      react: 19.3.0
       set-cookie-parser: 2.7.2
     optionalDependencies:
-      react-dom: 19.2.8(react@19.2.8)
+      react-dom: 19.2.8(react@19.3.0)
 
-  react-stately@3.49.0(react@19.2.8):
+  react-stately@3.49.0(react@19.3.0):
     dependencies:
       '@internationalized/date': 3.12.3
       '@internationalized/number': 3.6.7
       '@internationalized/string': 3.2.10
-      '@react-types/shared': 3.36.1(react@19.2.8)
+      '@react-types/shared': 3.36.1(react@19.3.0)
       '@swc/helpers': 0.5.23
-      react: 19.2.8
-      use-sync-external-store: 1.6.0(react@19.2.8)
+      react: 19.3.0
+      use-sync-external-store: 1.6.0(react@19.3.0)
 
-  react-transition-group@4.4.5(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
+  react-transition-group@4.4.5(react-dom@19.2.8(react@19.3.0))(react@19.3.0):
     dependencies:
       '@babel/runtime': 7.29.7
       dom-helpers: 5.2.1
       loose-envify: 1.4.0
       prop-types: 15.8.1
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
+      react: 19.3.0
+      react-dom: 19.2.8(react@19.3.0)
 
-  react@19.2.8: {}
+  react@19.3.0: {}
 
   rolldown@1.2.8:
     dependencies:
@@ -3695,9 +3695,9 @@ snapshots:
     dependencies:
       pathe: 2.0.3
 
-  use-sync-external-store@1.6.0(react@19.2.8):
+  use-sync-external-store@1.6.0(react@19.3.0):
     dependencies:
-      react: 19.2.8
+      react: 19.3.0
 
   vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13):
     dependencies:
