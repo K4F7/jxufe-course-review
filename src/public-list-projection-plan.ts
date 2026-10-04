@@ -43,6 +43,8 @@ type ProjectionTables = {
   canonicals: string;
   reviewCounts: string;
   teacherCourseCounts: string;
+  teacherReviewCounts: string;
+  teacherListTotals: string;
   teacherSearch: string;
   relationRatings: string;
   relationTotals: string;
@@ -54,6 +56,8 @@ const projectionTables = (target: PublicProjectionTarget): ProjectionTables =>
         canonicals: "public_course_canonicals_staging",
         reviewCounts: "public_review_counts_staging",
         teacherCourseCounts: "public_teacher_course_counts_staging",
+        teacherReviewCounts: "public_teacher_review_counts_staging",
+        teacherListTotals: "public_teacher_list_totals_staging",
         teacherSearch: "public_teacher_search_staging",
         relationRatings: "public_relation_ratings_staging",
         relationTotals: "public_relation_list_totals_staging",
@@ -62,6 +66,8 @@ const projectionTables = (target: PublicProjectionTarget): ProjectionTables =>
         canonicals: "public_course_canonicals",
         reviewCounts: "public_review_counts",
         teacherCourseCounts: "public_teacher_course_counts",
+        teacherReviewCounts: "public_teacher_review_counts",
+        teacherListTotals: "public_teacher_list_totals",
         teacherSearch: "public_teacher_search",
         relationRatings: "public_relation_ratings",
         relationTotals: "public_relation_list_totals",
@@ -196,6 +202,36 @@ const teacherCourseCountInsert = (tables: ProjectionTables) => `
   GROUP BY ct.teacher_id;
 `;
 
+const teacherReviewCountInsert = (tables: ProjectionTables) => `
+  INSERT INTO ${tables.teacherReviewCounts}(teacher_id,review_count,name,department)
+  SELECT t.id,COALESCE(sums.review_count,0),t.name,t.department
+  FROM teachers t
+  LEFT JOIN (
+    SELECT teacher_id,SUM(review_count) review_count
+    FROM ${tables.reviewCounts}
+    GROUP BY teacher_id
+  ) sums ON sums.teacher_id=t.id
+  WHERE ${refreshLeaseGuard};
+`;
+
+const teacherListTotalInsert = (tables: ProjectionTables) => `
+  INSERT INTO ${tables.teacherListTotals}(id,n)
+  SELECT id,n FROM (
+    SELECT 1 id,COUNT(*) n FROM teachers
+  ) counted
+  WHERE ${refreshLeaseGuard};
+`;
+
+async function hasProjectionTable(db: D1Database, table: string) {
+  const row = await db
+    .prepare(
+      `SELECT 1 ok FROM sqlite_master WHERE type='table' AND name=?`,
+    )
+    .bind(table)
+    .first<{ ok: number }>();
+  return Boolean(row);
+}
+
 const relationRatingInsert = (tables: ProjectionTables) => `
   INSERT INTO ${tables.relationRatings}(course_id,teacher_id,rating)
   SELECT r.course_id,r.teacher_id,ROUND(AVG(r.overall),1)
@@ -315,13 +351,27 @@ export async function rebuildPublicListProjection({
 }): Promise<void> {
   const staging = projectionTables("staging");
   const active = projectionTables("active");
-  await db.batch([
+  // Migration 0061 can land after this build. Skip the new tables until then
+  // so an in-flight rebuild of the older projections still publishes.
+  const teacherReviewCounts = await hasProjectionTable(
+    db,
+    staging.teacherReviewCounts,
+  );
+  const stage: D1PreparedStatement[] = [
     db.prepare(`DELETE FROM ${staging.canonicals}`),
     db.prepare(`DELETE FROM ${staging.reviewCounts}`),
     db.prepare(`DELETE FROM ${staging.teacherCourseCounts}`),
     db.prepare(`DELETE FROM ${staging.teacherSearch}`),
     db.prepare(`DELETE FROM ${staging.relationRatings}`),
     db.prepare(`DELETE FROM ${staging.relationTotals}`),
+  ];
+  if (teacherReviewCounts) {
+    stage.push(
+      db.prepare(`DELETE FROM ${staging.teacherReviewCounts}`),
+      db.prepare(`DELETE FROM ${staging.teacherListTotals}`),
+    );
+  }
+  stage.push(
     db.prepare(canonicalInsert(staging)).bind(generation, token),
     db.prepare(aggregateInsert(staging)).bind(generation, token),
     db.prepare(teacherCourseCountInsert(staging)).bind(generation, token),
@@ -331,10 +381,17 @@ export async function rebuildPublicListProjection({
       const insert = relationTotalInsert(staging, category);
       return db.prepare(insert.sql).bind(...insert.args, generation, token);
     }),
-  ]);
+  );
+  if (teacherReviewCounts) {
+    stage.push(
+      db.prepare(teacherReviewCountInsert(staging)).bind(generation, token),
+      db.prepare(teacherListTotalInsert(staging)).bind(generation, token),
+    );
+  }
+  await db.batch(stage);
   await refreshCatalogPinyinTexts(db, generation, token, renewLease, staging);
   await renewLease();
-  await db.batch([
+  const publish: D1PreparedStatement[] = [
     db.prepare(guardedProjectionDelete(active.canonicals)).bind(generation, token),
     db.prepare(
       `INSERT INTO ${active.canonicals}(
@@ -376,5 +433,38 @@ export async function rebuildPublicListProjection({
        SELECT category, n FROM ${staging.relationTotals}
        WHERE ${refreshLeaseGuard}`,
     ).bind(generation, token),
-  ]);
+  ];
+  if (teacherReviewCounts) {
+    publish.push(
+      db.prepare(guardedProjectionDelete(active.teacherReviewCounts)).bind(
+        generation,
+        token,
+      ),
+      db.prepare(
+        `INSERT INTO ${active.teacherReviewCounts}(teacher_id,review_count,name,department)
+         SELECT teacher_id,review_count,name,department
+         FROM ${staging.teacherReviewCounts}
+         WHERE ${refreshLeaseGuard}`,
+      ).bind(generation, token),
+      db.prepare(guardedProjectionDelete(active.teacherListTotals)).bind(
+        generation,
+        token,
+      ),
+      db.prepare(
+        `INSERT INTO ${active.teacherListTotals}(id,n)
+         SELECT id,n FROM ${staging.teacherListTotals}
+         WHERE ${refreshLeaseGuard}`,
+      ).bind(generation, token),
+      db.prepare(
+        `UPDATE public_precompute_state
+         SET teacher_review_counts_ready=1
+         WHERE id=1
+           AND dirty=1
+           AND generation=?
+           AND refresh_token=?
+           AND refresh_lease_until>unixepoch()`,
+      ).bind(generation, token),
+    );
+  }
+  await db.batch(publish);
 }

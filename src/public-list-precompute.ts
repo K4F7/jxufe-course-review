@@ -201,6 +201,57 @@ async function refreshPublicListPrecomputesAttempt(
   }
 }
 
+export function isMissingPublicSchemaError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /no such (table|column|index)|no query solution/i.test(message);
+}
+
+/** True once migration 0061's teacher review projection has been published. */
+export async function ensureTeacherReviewCountProjection(
+  db: D1Database,
+): Promise<boolean> {
+  let ready = 0;
+  try {
+    const row = await db
+      .prepare(
+        `SELECT teacher_review_counts_ready ready
+         FROM public_precompute_state WHERE id=1`,
+      )
+      .first<{ ready: number }>();
+    if (!row) return false;
+    ready = Number(row.ready) || 0;
+  } catch (error) {
+    if (isMissingPublicSchemaError(error)) return false;
+    throw error;
+  }
+  if (ready === 1) return true;
+  try {
+    await db
+      .prepare(
+        `UPDATE public_precompute_state
+         SET dirty=1
+         WHERE id=1 AND teacher_review_counts_ready=0`,
+      )
+      .run();
+    await refreshPublicListPrecomputes(db);
+  } catch (error) {
+    if (isMissingPublicSchemaError(error)) return false;
+    throw error;
+  }
+  try {
+    const row = await db
+      .prepare(
+        `SELECT teacher_review_counts_ready ready
+         FROM public_precompute_state WHERE id=1`,
+      )
+      .first<{ ready: number }>();
+    return Number(row?.ready) === 1;
+  } catch (error) {
+    if (isMissingPublicSchemaError(error)) return false;
+    throw error;
+  }
+}
+
 export async function refreshPublicListPrecomputes(db: D1Database) {
   const existing = publicPrecomputeRefreshes.get(db);
   if (existing) return existing;

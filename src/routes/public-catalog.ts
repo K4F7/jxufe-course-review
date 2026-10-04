@@ -61,8 +61,10 @@ import {
 import { relationDimensionKey } from "../lib/relation-four-dims";
 import { loadRelationDimensionLabels } from "../lib/relation-projections";
 import {
+  loadPublicTeacherHead,
   queryPublicCourseRelations,
   queryPublicCourses,
+  queryPublicTeacherList,
   type PublicCourseListQuery,
   type PublicRelationListQuery,
 } from "../public-catalog-query";
@@ -739,42 +741,19 @@ publicCatalogRoutes.get("/api/teachers", async (c) => {
     "teacher",
     args.length,
   );
-  const teacherCount = () =>
-    c.env.DB.prepare(
-      `SELECT COUNT(*) n FROM teachers t ${publicTeacherSearchJoin} WHERE ${where}`,
-    )
-      .bind(...args)
-      .first<{ n: number }>()
-      .then((row) => row?.n || 0);
-  const { results } = await c.env.DB.prepare(
-    `SELECT t.*,
-       COALESCE(public_teacher_course_counts.course_count,0) course_count,
-       COALESCE(teacher_review_counts.review_count,0) review_count,
-       COUNT(*) OVER() window_total
-      FROM teachers t
-      ${publicTeacherSearchJoin}
-      LEFT JOIN public_teacher_course_counts ON public_teacher_course_counts.teacher_id=t.id
-      LEFT JOIN (SELECT teacher_id,SUM(review_count) review_count FROM public_review_counts GROUP BY teacher_id) teacher_review_counts ON teacher_review_counts.teacher_id=t.id
-     WHERE ${where}
-       ORDER BY ${teacherRanking.sql},review_count DESC,t.name,t.department,t.id
-     LIMIT ? OFFSET ?`,
-  )
-    .bind(
-      ...args,
-      ...teacherRanking.args,
-      size,
-      (page - 1) * size,
-    )
-    .all();
-  const pageRows = await windowedPage(
-    results as WindowedRow[],
+  const listed = await queryPublicTeacherList(c.env.DB, {
     page,
-    teacherCount,
-  );
-  const totalCount = pageRows.total;
+    pageSize: size,
+    hasSearch: searchTerms.length > 0,
+    where,
+    args,
+    rankingSql: teacherRanking.sql,
+    rankingArgs: teacherRanking.args,
+  });
+  const totalCount = listed.total;
   if (cacheable) setPublicListCacheHeaders(c);
   return c.json({
-    items: pageRows.items.map((row: Record<string, unknown>) => {
+    items: listed.rows.map((row: Record<string, unknown>) => {
       const teacher = toPublicTeacher(row);
       const sport = virtualPeSportForTeacherName(
         typeof teacher.name === "string" ? teacher.name : "",
@@ -795,22 +774,8 @@ publicCatalogRoutes.get("/api/teachers/:id", async (c) => {
   const cacheable = isPublicCatalogCacheableRequest(c);
   await ensurePublicListPrecomputes(c.env.DB, publicPrecomputeReadOptions(c));
   const id = integer(c.req.param("id"));
-  const [teacherResult, coursesResult] = await c.env.DB.batch<
-    Record<string, unknown>
-  >([
-    c.env.DB.prepare(
-      `SELECT t.*,
-         COALESCE(public_teacher_course_counts.course_count,0) course_count,
-         COALESCE((
-           SELECT SUM(public_review_counts.review_count)
-           FROM public_review_counts
-           WHERE public_review_counts.teacher_id=t.id
-         ),0) review_count,
-         (SELECT ROUND(AVG(r.overall),1) FROM reviews r WHERE r.teacher_id=t.id AND r.status='approved'${guestReviewBindingSql}) rating
-       FROM teachers t
-       LEFT JOIN public_teacher_course_counts ON public_teacher_course_counts.teacher_id=t.id
-       WHERE t.id=?`,
-    ).bind(id),
+  const [teacherRow, coursesResult] = await Promise.all([
+    loadPublicTeacherHead(c.env.DB, id),
     c.env.DB.prepare(
       `SELECT c.*,COALESCE(visible_counts.review_count,0) review_count,
          (SELECT ROUND(AVG(r.overall),1) FROM reviews r WHERE r.course_id=c.id AND r.teacher_id=? AND r.status='approved'${guestReviewBindingSql}) rating
@@ -824,9 +789,10 @@ publicCatalogRoutes.get("/api/teachers/:id", async (c) => {
          AND ${publicPeMappedSourceRelationExcludeSql("taught", "ct")}
        GROUP BY c.id
        ORDER BY review_count DESC,c.name,c.id`,
-    ).bind(id, id),
+    )
+      .bind(id, id)
+      .all<Record<string, unknown>>(),
   ]);
-  const teacherRow = teacherResult.results[0];
   if (!teacherRow) return fail(c, "教师不存在", 404);
   const teacher = toPublicTeacher(teacherRow);
   const reviewCount = Number(teacher.review_count) || 0;
