@@ -30,8 +30,8 @@ importers:
         specifier: 7.5.0
         version: 7.5.0
       hono:
-        specifier: 4.13.7
-        version: 4.13.7
+        specifier: 4.13.8
+        version: 4.13.8
       pinyin-pro:
         specifier: ^3.29.2
         version: 3.29.2(patch_hash=afd2038b9bdf1b02ea7b9b0607702efa791983804ffd8c3bda02f4595cb330e2)
@@ -1593,8 +1593,8 @@ packages:
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
 
-  hono@4.13.7:
-    resolution: {integrity: sha512-c8/gF9ac8Y78/agExVocyLevgR+JlpNB444Py0FSX8pJoPdYUfUzRcXtYEYGwt6l19qIlVZPN5Mfsw9jFShmQQ==}
+  hono@4.13.8:
+    resolution: {integrity: sha512-/Gng7NfoykZl2pjukW5Z6+8Yxm3BPRf86GTbQnt0SbySkvax4fyL4H3HhY1cCpBGmiW9XDRFzRV+CXK2W8QudQ==}
     engines: {node: '>=16.9.0'}
 
   iconv-lite@0.7.3:
@@ -3271,7 +3271,7 @@ snapshots:
 
   graceful-fs@4.2.11: {}
 
-  hono@4.13.7: {}
+  hono@4.13.8: {}
 
   iconv-lite@0.7.3:
     dependencies:
