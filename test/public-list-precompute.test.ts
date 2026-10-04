@@ -83,6 +83,11 @@ describe("public list query shape", () => {
        VALUES(1,888)
        ON CONFLICT(teacher_id) DO UPDATE SET course_count=excluded.course_count`,
     ).run();
+    await env.DB.prepare(
+      `INSERT INTO public_teacher_review_counts(teacher_id,review_count,name,department)
+       VALUES(1,777,'测试教师','测试学院')
+       ON CONFLICT(teacher_id) DO UPDATE SET review_count=excluded.review_count`,
+    ).run();
     await env.DB.batch([
       env.DB.prepare(
         `UPDATE public_course_canonicals

@@ -40,9 +40,15 @@ import {
 import type { PublicDimensionLabel } from "./lib/review-schemes";
 import {
   ensurePublicListPrecomputes,
+  ensureTeacherReviewCountProjection,
+  isMissingPublicSchemaError,
   type PublicPrecomputeReadOptions,
 } from "./public-list-precompute";
-import { publicCourseCanonicalJoin } from "./public-list-projection-plan";
+import {
+  publicCourseCanonicalJoin,
+  publicTeacherSearchJoin,
+} from "./public-list-projection-plan";
+import { guestReviewBindingSql } from "./public-review-visibility";
 import {
   loadRelationSignalPayloads,
   type RelationSignalCounts,
@@ -958,4 +964,206 @@ export async function queryPublicCourseRelations(
     items: await attachRelationProjection(db, items.slice(0, size), viewerUserId),
     ...publicCatalogPageMeta(page, size, totalCount),
   };
+}
+
+export const PUBLIC_TEACHER_REVIEW_BROWSE_INDEX =
+  "idx_public_teacher_review_counts_browse";
+
+/** Inner page scan. The index order is the unfiltered teacher browse order. */
+export const publicTeacherBrowsePageSql = `
+  SELECT teacher_id,review_count,name,department
+  FROM public_teacher_review_counts INDEXED BY ${PUBLIC_TEACHER_REVIEW_BROWSE_INDEX}
+  ORDER BY review_count DESC,name,department,teacher_id
+  LIMIT ? OFFSET ?`;
+
+export type PublicTeacherListRequest = {
+  page: number;
+  pageSize: number;
+  hasSearch: boolean;
+  where: string;
+  args: unknown[];
+  rankingSql: string;
+  rankingArgs: unknown[];
+};
+
+const legacyTeacherReviewJoin = `LEFT JOIN (
+  SELECT teacher_id,SUM(review_count) review_count
+  FROM public_review_counts
+  GROUP BY teacher_id
+) teacher_review_counts ON teacher_review_counts.teacher_id=t.id`;
+
+const precomputedTeacherReviewJoin =
+  "LEFT JOIN public_teacher_review_counts ON public_teacher_review_counts.teacher_id=t.id";
+
+function withoutWindowTotal(row: Record<string, unknown>) {
+  const { window_total: _windowTotal, ...rest } = row;
+  return rest;
+}
+
+async function countJoinedTeachers(
+  db: D1Database,
+  where: string,
+  args: unknown[],
+) {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) n FROM teachers t ${publicTeacherSearchJoin} WHERE ${where}`,
+    )
+    .bind(...args)
+    .first<{ n: number }>();
+  return Number(row?.n) || 0;
+}
+
+async function loadPrecomputedTeacherTotal(db: D1Database) {
+  const stored = await db
+    .prepare(`SELECT n FROM public_teacher_list_totals WHERE id=1`)
+    .first<{ n: number }>();
+  if (stored) return Number(stored.n) || 0;
+  const counted = await db
+    .prepare(`SELECT COUNT(*) n FROM public_teacher_review_counts`)
+    .first<{ n: number }>();
+  return Number(counted?.n) || 0;
+}
+
+async function queryPrecomputedTeacherBrowse(
+  db: D1Database,
+  request: PublicTeacherListRequest,
+) {
+  const offset = (request.page - 1) * request.pageSize;
+  const { results } = await db
+    .prepare(
+      `SELECT t.*,
+         COALESCE(public_teacher_course_counts.course_count,0) course_count,
+         page.review_count review_count
+       FROM (${publicTeacherBrowsePageSql}) page
+       JOIN teachers t ON t.id=page.teacher_id
+       LEFT JOIN public_teacher_course_counts
+         ON public_teacher_course_counts.teacher_id=page.teacher_id
+       ORDER BY page.review_count DESC,page.name,page.department,page.teacher_id`,
+    )
+    .bind(request.pageSize, offset)
+    .all<Record<string, unknown>>();
+  return {
+    rows: results ?? [],
+    total: await loadPrecomputedTeacherTotal(db),
+  };
+}
+
+async function queryJoinedTeacherList(
+  db: D1Database,
+  request: PublicTeacherListRequest,
+  reviewJoin: string,
+  reviewExpr: string,
+) {
+  const offset = (request.page - 1) * request.pageSize;
+  const { results } = await db
+    .prepare(
+      `SELECT t.*,
+         COALESCE(public_teacher_course_counts.course_count,0) course_count,
+         ${reviewExpr} review_count,
+         COUNT(*) OVER() window_total
+       FROM teachers t
+       ${publicTeacherSearchJoin}
+       LEFT JOIN public_teacher_course_counts
+         ON public_teacher_course_counts.teacher_id=t.id
+       ${reviewJoin}
+       WHERE ${request.where}
+       ORDER BY ${request.rankingSql},review_count DESC,t.name,t.department,t.id
+       LIMIT ? OFFSET ?`,
+    )
+    .bind(
+      ...request.args,
+      ...request.rankingArgs,
+      request.pageSize,
+      offset,
+    )
+    .all<Record<string, unknown>>();
+  const rows = results ?? [];
+  if (rows.length) {
+    return {
+      rows: rows.map(withoutWindowTotal),
+      total: Number(rows[0]?.window_total) || 0,
+    };
+  }
+  if (request.page <= 1) return { rows: [], total: 0 };
+  return {
+    rows: [],
+    total: await countJoinedTeachers(db, request.where, request.args),
+  };
+}
+
+export async function queryPublicTeacherList(
+  db: D1Database,
+  request: PublicTeacherListRequest,
+): Promise<{ rows: Record<string, unknown>[]; total: number }> {
+  const ready = await ensureTeacherReviewCountProjection(db);
+  if (!request.hasSearch && ready) {
+    try {
+      return await queryPrecomputedTeacherBrowse(db, request);
+    } catch (error) {
+      if (!isMissingPublicSchemaError(error)) throw error;
+    }
+  }
+  if (ready) {
+    try {
+      return await queryJoinedTeacherList(
+        db,
+        request,
+        precomputedTeacherReviewJoin,
+        "COALESCE(public_teacher_review_counts.review_count,0)",
+      );
+    } catch (error) {
+      if (!isMissingPublicSchemaError(error)) throw error;
+    }
+  }
+  return queryJoinedTeacherList(
+    db,
+    request,
+    legacyTeacherReviewJoin,
+    "COALESCE(teacher_review_counts.review_count,0)",
+  );
+}
+
+function teacherHeadSql(reviewExpr: string, reviewJoin: string) {
+  return `SELECT t.*,
+    COALESCE(public_teacher_course_counts.course_count,0) course_count,
+    ${reviewExpr} review_count,
+    (SELECT ROUND(AVG(r.overall),1) FROM reviews r
+      WHERE r.teacher_id=t.id AND r.status='approved'${guestReviewBindingSql}) rating
+   FROM teachers t
+   LEFT JOIN public_teacher_course_counts
+     ON public_teacher_course_counts.teacher_id=t.id
+   ${reviewJoin}
+   WHERE t.id=?`;
+}
+
+export async function loadPublicTeacherHead(
+  db: D1Database,
+  id: number | null,
+): Promise<Record<string, unknown> | null> {
+  const ready = await ensureTeacherReviewCountProjection(db);
+  const load = (sql: string) =>
+    db.prepare(sql).bind(id).first<Record<string, unknown>>();
+  if (ready) {
+    try {
+      return await load(
+        teacherHeadSql(
+          "COALESCE(public_teacher_review_counts.review_count,0)",
+          precomputedTeacherReviewJoin,
+        ),
+      );
+    } catch (error) {
+      if (!isMissingPublicSchemaError(error)) throw error;
+    }
+  }
+  return load(
+    teacherHeadSql(
+      `COALESCE((
+         SELECT SUM(public_review_counts.review_count)
+         FROM public_review_counts
+         WHERE public_review_counts.teacher_id=t.id
+       ),0)`,
+      "",
+    ),
+  );
 }
