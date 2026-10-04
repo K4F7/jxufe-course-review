@@ -631,4 +631,94 @@ describe("public list refresh coordination", () => {
       await refreshPublicListPrecomputes(env.DB);
     }
   });
+
+  it("reports a dirty projection inside the stale window without rebuilding it first", async () => {
+    await refreshPublicListPrecomputes(env.DB);
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO public_review_counts(course_id,teacher_id,review_count)
+         VALUES(1,1,9153600)
+         ON CONFLICT(course_id,teacher_id) DO UPDATE SET review_count=excluded.review_count`,
+      ),
+      env.DB.prepare(
+        `UPDATE public_precompute_state
+         SET dirty=1,
+             published_generation=CASE
+               WHEN published_generation < 0 THEN 0
+               ELSE published_generation
+             END,
+             published_at=unixepoch(),
+             refresh_token=NULL,
+             refresh_lease_until=NULL
+         WHERE id=1`,
+      ),
+    ]);
+    let releaseBatch!: () => void;
+    const holdBatch = new Promise<void>((resolve) => {
+      releaseBatch = resolve;
+    });
+    let batches = 0;
+    const database = databaseWithBatch(async (statements) => {
+      batches += 1;
+      if (batches === 1) await holdBatch;
+      return env.DB.batch(statements);
+    });
+    const pending: Promise<void>[] = [];
+    let stale = false;
+    const reading = ensurePublicListPrecomputes(database, {
+      mode: "stale",
+      waitUntil: (promise) => {
+        pending.push(promise);
+      },
+      onStaleProjection: () => {
+        stale = true;
+      },
+    });
+    try {
+      await reading;
+      expect(stale).toBe(true);
+      expect(batches).toBeLessThanOrEqual(1);
+      const during = await env.DB.prepare(
+        "SELECT review_count FROM public_review_counts WHERE course_id=1 AND teacher_id=1",
+      ).first<{ review_count: number }>();
+      const state = await env.DB.prepare(
+        "SELECT dirty FROM public_precompute_state WHERE id=1",
+      ).first<{ dirty: number }>();
+      expect(during?.review_count).toBe(9153600);
+      expect(state?.dirty).toBe(1);
+    } finally {
+      releaseBatch();
+      await Promise.allSettled([reading, ...pending]);
+      await env.DB.prepare(
+        `UPDATE public_precompute_state
+         SET dirty=1,refresh_token=NULL,refresh_lease_until=NULL
+         WHERE id=1`,
+      ).run();
+      await refreshPublicListPrecomputes(env.DB);
+    }
+  });
+
+  it("rebuilds a dirty projection older than the stale window", async () => {
+    await env.DB.prepare(
+      `UPDATE public_precompute_state
+       SET dirty=1,published_generation=1,published_at=1,
+           refresh_token=NULL,refresh_lease_until=NULL
+       WHERE id=1`,
+    ).run();
+    let stale = false;
+    await ensurePublicListPrecomputes(env.DB, {
+      mode: "stale",
+      waitUntil: () => {
+        throw new Error("an expired projection should refresh in the request");
+      },
+      onStaleProjection: () => {
+        stale = true;
+      },
+    });
+    expect(stale).toBe(false);
+    const state = await env.DB.prepare(
+      "SELECT dirty FROM public_precompute_state WHERE id=1",
+    ).first<{ dirty: number }>();
+    expect(state?.dirty).toBe(0);
+  });
 });

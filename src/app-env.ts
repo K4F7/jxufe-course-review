@@ -39,6 +39,8 @@ export type Vars = {
   adminSource?: "student";
   publicCatalogCacheChanged?: boolean;
   publicCatalogCacheScopes?: Array<"list" | "detail" | "config">;
+  /** This read returned the previous published projection while a refresh runs. */
+  publicCatalogProjectionStale?: boolean;
   serverTiming?: Record<string, number>;
 };
 

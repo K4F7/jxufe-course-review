@@ -221,6 +221,8 @@ export type PublicPrecomputeReadOptions = {
   mode?: PublicPrecomputeReadMode;
   waitUntil?: (promise: Promise<void>) => void;
   recordTiming?: (name: string, durationMs: number) => void;
+  /** Called only when this read returns the previous published projection. */
+  onStaleProjection?: () => void;
 };
 
 function schedulePublicPrecomputeRefresh(
@@ -267,7 +269,11 @@ export async function ensurePublicListPrecomputes(
         age <= PUBLIC_PROJECTION_MAX_STALE_SECONDS
       ) {
         const scheduled = schedulePublicPrecomputeRefresh(db, options.waitUntil);
-        if (scheduled) await scheduled;
+        if (scheduled) {
+          await scheduled;
+          return;
+        }
+        options.onStaleProjection?.();
         return;
       }
     }

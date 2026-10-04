@@ -1,10 +1,11 @@
-import type { Context } from "hono";
 import { resolveOrdinaryUser } from "./ordinary-user-authentication";
 import { ordinaryUserSessionPayload } from "./ordinary-user-session";
 import {
   canOrdinaryUserWrite,
   ordinaryUserMutationSecurityOk,
 } from "./ordinary-user-write-authorization";
+import { markPublicCatalogCacheChanged } from "./routes/support";
+import type { AppContext } from "./routes/types";
 
 export const USER_DELETION_PATH = "/api/user/deletion";
 export const USER_DELETION_RESTORE_PATH = "/api/user/deletion/restore";
@@ -15,7 +16,7 @@ export const USER_DELETION_RESTORE_PATH = "/api/user/deletion/restore";
  * loses their recognitions, and keeps the auth identity for CSRF restore.
  * This version does not finalize after 30 days.
  */
-export async function handleRequestOrdinaryUserDeletion(c: Context) {
+export async function handleRequestOrdinaryUserDeletion(c: AppContext) {
   const user = await resolveOrdinaryUser(c);
   if (!user) return c.json({ error: "请先登录" }, 401);
   if (!canOrdinaryUserWrite(user))
@@ -65,10 +66,13 @@ export async function handleRequestOrdinaryUserDeletion(c: Context) {
       "UPDATE users SET status='pending_deletion', pending_deletion_at=? WHERE id=? AND status='active'",
     ).bind(pendingDeletionAt, user.id),
   ]);
+  // Deletion drops this user's relation signals and recognitions, which are
+  // part of the shared list and detail payloads.
+  markPublicCatalogCacheChanged(c);
   return c.json(await ordinaryUserSessionPayload(c));
 }
 
-export async function handleRestoreOrdinaryUserDeletion(c: Context) {
+export async function handleRestoreOrdinaryUserDeletion(c: AppContext) {
   const user = await resolveOrdinaryUser(c);
   if (!user) return c.json({ error: "请先登录" }, 401);
   if (user.status !== "pending_deletion")

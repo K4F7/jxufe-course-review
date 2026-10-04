@@ -27,7 +27,13 @@ const PUBLIC_CACHE_CREDENTIAL_COOKIES = [
  */
 
 export const PUBLIC_CATALOG_CACHE_CONTROL =
-  "public, max-age=0, s-maxage=300, stale-while-revalidate=300";
+  "public, max-age=0, s-maxage=3600, stale-while-revalidate=300";
+/**
+ * A dirty published projection is the pre-write snapshot. Do not let the CDN
+ * or Cache API store it: s-maxage=3600 would keep that snapshot for an hour,
+ * and stale-while-revalidate would keep serving it after the refresh lands.
+ */
+export const PUBLIC_CATALOG_STALE_CACHE_CONTROL = "no-store";
 export const PUBLIC_CATALOG_CACHE_TAG = "public-catalog";
 export const PUBLIC_DETAIL_CACHE_TAG = "public-detail";
 export const PUBLIC_CONFIG_CACHE_TAG = "public-config";
@@ -56,10 +62,24 @@ type CachePurgeContext = {
 export function setPublicCatalogCacheHeaders(
   c: HeaderContext,
   scope: PublicCacheScope = "list",
+  projectionStale = false,
 ) {
   const values = cacheScopeValues[scope];
-  c.header("Cache-Control", values.control);
+  c.header(
+    "Cache-Control",
+    scope === "list" && projectionStale
+      ? PUBLIC_CATALOG_STALE_CACHE_CONTROL
+      : values.control,
+  );
   c.header("Cache-Tag", values.tag);
+}
+
+/** Shared list responses are stored only when this read did not serve a dirty projection. */
+export function shouldPutPublicCatalogCache(
+  queryMs: number,
+  projectionStale: boolean,
+) {
+  return queryMs < 2000 && !projectionStale;
 }
 
 export async function purgePublicCatalogCache(
