@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildPeSpecializationMapping } from "../src/lib/pe-specialization-mapping";
 import { publicRelationNameSortKey } from "../src/lib/public-course-presentation";
+import { columnRowInsertStatements } from "../src/public-catalog-browse-plan";
 import { rebuildPublicListProjection } from "../src/public-list-projection-plan";
 import { refreshPublicListPrecomputes } from "../src/public-list-precompute";
 import {
@@ -536,6 +537,30 @@ describe("预计算公共目录浏览", () => {
       ).run();
       await refreshPublicListPrecomputes(env.DB);
     }
+  });
+
+  it("D1 接受宽度 2 的满块 VALUES 插入", async () => {
+    const columns = ["department", "public_id"] as const;
+    const rows = Array.from({ length: 49 }, (_, index) => ({
+      department: `满块院系${index}`,
+      public_id: `relation:chunk:${index}`,
+    }));
+    const [statement] = columnRowInsertStatements(
+      "public_relation_browse_departments_staging",
+      columns,
+      rows,
+    );
+    expect(statement).toBeDefined();
+    expect(statement?.sql).not.toContain("UNION ALL");
+    expect(statement?.sql.match(/\(\?,\?\)/g)).toHaveLength(49);
+    await env.DB.prepare(statement!.sql)
+      .bind(...statement!.values, -1, "not-a-lease")
+      .run();
+    const leaked = await env.DB.prepare(
+      `SELECT COUNT(*) n FROM public_relation_browse_departments_staging
+       WHERE public_id LIKE 'relation:chunk:%'`,
+    ).first<{ n: number }>();
+    expect(Number(leaked?.n)).toBe(0);
   });
 });
 

@@ -224,6 +224,55 @@ function canonicalJoin(canonicals: string): string {
   return `JOIN ${canonicals} pcc ON pcc.course_id=c.id AND pcc.canonical_course_id=c.id`;
 }
 
+/** Generation and token placeholders in `refreshLeaseGuard`. */
+const LEASE_PARAMETER_COUNT = 2;
+
+/**
+ * Rows per INSERT. D1 rejects more than D1_MAX_BOUND_PARAMETERS bound
+ * parameters, and two of them belong to the refresh lease.
+ */
+export function columnRowInsertChunkSize(width: number): number {
+  return Math.max(
+    1,
+    Math.floor((D1_MAX_BOUND_PARAMETERS - LEASE_PARAMETER_COUNT) / width),
+  );
+}
+
+export type ColumnRowInsertStatement = {
+  sql: string;
+  values: unknown[];
+};
+
+/**
+ * Workerd's compound-SELECT cap is far below 49 terms, so a 2-column
+ * department insert built as `SELECT ? UNION ALL SELECT ?` fails and the
+ * rebuild rolls back to dirty. Multi-row VALUES is exempt since SQLite
+ * 3.8.8; outputs are named column1..columnN.
+ */
+export function columnRowInsertStatements(
+  table: string,
+  columns: readonly string[],
+  rows: ReadonlyArray<Readonly<Record<string, unknown>>>,
+): ColumnRowInsertStatement[] {
+  if (!rows.length) return [];
+  const chunkSize = columnRowInsertChunkSize(columns.length);
+  const projected = columns.map((_, index) => `column${index + 1}`).join(",");
+  const statements: ColumnRowInsertStatement[] = [];
+  for (let offset = 0; offset < rows.length; offset += chunkSize) {
+    const slice = rows.slice(offset, offset + chunkSize);
+    const tuples = slice
+      .map(() => `(${columns.map(() => "?").join(",")})`)
+      .join(",");
+    statements.push({
+      sql: `INSERT INTO ${table}(${columns.join(",")})
+       SELECT ${projected} FROM (VALUES ${tuples})
+       WHERE ${refreshLeaseGuard}`,
+      values: slice.flatMap((row) => columns.map((column) => row[column])),
+    });
+  }
+  return statements;
+}
+
 async function insertColumnRows(
   db: D1Database,
   table: string,
@@ -233,30 +282,14 @@ async function insertColumnRows(
   token: string,
   renewLease: () => Promise<void>,
 ) {
-  if (!rows.length) return;
-  const width = columns.length;
-  const chunkSize = Math.max(
-    1,
-    Math.floor((D1_MAX_BOUND_PARAMETERS - 2) / width),
-  );
-  for (let offset = 0; offset < rows.length; offset += chunkSize) {
-    const slice = rows.slice(offset, offset + chunkSize);
-    const select = slice
-      .map((_, index) =>
-        index === 0
-          ? `SELECT ${columns.map((column) => `? ${column}`).join(",")}`
-          : `SELECT ${columns.map(() => "?").join(",")}`,
-      )
-      .join(" UNION ALL ");
+  for (const statement of columnRowInsertStatements(table, columns, rows)) {
     await renewLease();
     await bindLease(
       db,
-      `INSERT INTO ${table}(${columns.join(",")})
-       SELECT ${columns.join(",")} FROM (${select}) incoming
-       WHERE ${refreshLeaseGuard}`,
+      statement.sql,
       generation,
       token,
-      slice.flatMap((row) => columns.map((column) => row[column])),
+      statement.values,
     ).run();
   }
 }
