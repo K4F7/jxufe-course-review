@@ -400,3 +400,144 @@ it("keeps offering and tag invalidation scoped to projection inputs", async () =
     ).run();
   }
 });
+
+async function expectReviewWriteToStayClean(
+  label: string,
+  statement: D1PreparedStatement,
+) {
+  await env.DB.prepare(
+    `UPDATE public_precompute_state
+     SET dirty=0,refresh_token='stale-refresh',refresh_lease_until=unixepoch()+60
+     WHERE id=1`,
+  ).run();
+  const before = await env.DB.prepare(
+    "SELECT generation FROM public_precompute_state WHERE id=1",
+  ).first<{ generation: number }>();
+  await statement.run();
+  const state = await env.DB.prepare(
+    `SELECT dirty,generation,refresh_token
+     FROM public_precompute_state WHERE id=1`,
+  ).first<{ dirty: number; generation: number; refresh_token: string | null }>();
+  expect(state?.dirty, label).toBe(0);
+  expect(state?.generation, label).toBe(before?.generation ?? -1);
+  expect(state?.refresh_token, label).toBe("stale-refresh");
+}
+
+it("dirties reviews only when an approved row enters or leaves the public set", async () => {
+  const triggers = await env.DB.prepare(
+    `SELECT name, sql FROM sqlite_schema
+     WHERE type='trigger' AND name LIKE 'public_precompute_dirty_reviews_%'
+     ORDER BY name`,
+  ).all<{ name: string; sql: string }>();
+  const byName = Object.fromEntries(triggers.results.map((row) => [row.name, row.sql]));
+  expect(byName.public_precompute_dirty_reviews_insert).toContain(
+    "WHEN NEW.status='approved'",
+  );
+  expect(byName.public_precompute_dirty_reviews_update).toContain(
+    "UPDATE OF course_id,teacher_id,status,comment,overall,blocked_at,deleted_at,login_only,offering_id",
+  );
+  expect(byName.public_precompute_dirty_reviews_update).toContain(
+    "WHEN OLD.status='approved' OR NEW.status='approved'",
+  );
+  expect(byName.public_precompute_dirty_reviews_delete).toContain(
+    "WHEN OLD.status='approved'",
+  );
+
+  try {
+    await expectReviewWriteToStayClean(
+      "pending INSERT",
+      env.DB.prepare(
+        `INSERT INTO reviews(id,course_id,teacher_id,category,overall,comment,status)
+         VALUES(921101,1,1,'general',4,'待审核投稿','pending')`,
+      ),
+    );
+    await expectReviewWriteToStayClean(
+      "pending comment UPDATE",
+      env.DB.prepare("UPDATE reviews SET comment='待审核改稿' WHERE id=921101"),
+    );
+    await expectReviewWriteToStayClean(
+      "pending to rejected",
+      env.DB.prepare("UPDATE reviews SET status='rejected' WHERE id=921101"),
+    );
+    await expectReviewWriteToStayClean(
+      "rejected DELETE",
+      env.DB.prepare("DELETE FROM reviews WHERE id=921101"),
+    );
+    await expectReviewWriteToStayClean(
+      "rejected INSERT",
+      env.DB.prepare(
+        `INSERT INTO reviews(id,course_id,teacher_id,category,overall,comment,status)
+         VALUES(921102,1,1,'general',4,'已驳回投稿','rejected')`,
+      ),
+    );
+    await expectReviewWriteToStayClean(
+      "rejected blocked_at",
+      env.DB.prepare(
+        "UPDATE reviews SET blocked_at='2026-10-04' WHERE id=921102",
+      ),
+    );
+
+    await expectReviewWriteToStayClean(
+      "pending insert before approval",
+      env.DB.prepare(
+        `INSERT INTO reviews(id,course_id,teacher_id,category,overall,comment,status)
+         VALUES(921103,1,1,'general',4,'即将通过','pending')`,
+      ),
+    );
+    await expectWriteToMarkDirty(
+      "pending to approved",
+      env.DB.prepare("UPDATE reviews SET status='approved' WHERE id=921103"),
+    );
+
+    await expectWriteToMarkDirty(
+      "approved comment",
+      env.DB.prepare("UPDATE reviews SET comment='通过后改稿' WHERE id=921103"),
+    );
+    await expectWriteToMarkDirty(
+      "approved overall",
+      env.DB.prepare("UPDATE reviews SET overall=3.5 WHERE id=921103"),
+    );
+    await expectWriteToMarkDirty(
+      "approved login_only",
+      env.DB.prepare("UPDATE reviews SET login_only=1 WHERE id=921103"),
+    );
+    await expectWriteToMarkDirty(
+      "approved blocked_at",
+      env.DB.prepare("UPDATE reviews SET blocked_at='2026-10-04' WHERE id=921103"),
+    );
+    await expectWriteToMarkDirty(
+      "approved deleted_at",
+      env.DB.prepare("UPDATE reviews SET deleted_at='2026-10-04' WHERE id=921103"),
+    );
+    await expectReviewWriteToStayClean(
+      "approved headline",
+      env.DB.prepare("UPDATE reviews SET headline='不进投影' WHERE id=921103"),
+    );
+    await expectWriteToMarkDirty(
+      "approved to rejected",
+      env.DB.prepare("UPDATE reviews SET status='rejected' WHERE id=921103"),
+    );
+    await expectReviewWriteToStayClean(
+      "former approved comment",
+      env.DB.prepare("UPDATE reviews SET comment='驳回后改稿' WHERE id=921103"),
+    );
+    await expectWriteToMarkDirty(
+      "approved INSERT",
+      env.DB.prepare(
+        `INSERT INTO reviews(id,course_id,teacher_id,category,overall,comment,status)
+         VALUES(921104,1,1,'general',5,'直接通过','approved')`,
+      ),
+    );
+    await expectWriteToMarkDirty(
+      "approved row DELETE",
+      env.DB.prepare("DELETE FROM reviews WHERE id=921104"),
+    );
+  } finally {
+    await env.DB.prepare(
+      "DELETE FROM reviews WHERE id IN (921101,921102,921103,921104)",
+    ).run();
+    await env.DB.prepare(
+      "UPDATE public_precompute_state SET dirty=1,refresh_token=NULL,refresh_lease_until=NULL WHERE id=1",
+    ).run();
+  }
+});

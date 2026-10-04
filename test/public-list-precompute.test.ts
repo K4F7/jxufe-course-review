@@ -175,11 +175,13 @@ describe("public list refresh coordination", () => {
     const before = await env.DB.prepare(
       "SELECT generation FROM public_precompute_state WHERE id=1",
     ).first<{ generation: number }>();
+    // Pinyin rows are not rewritten when their source text is unchanged, so the
+    // concurrent-write injection sits on the lease renewal that brackets that phase.
     await env.DB.prepare(`
       CREATE TRIGGER issue355_write_during_pinyin
-      AFTER UPDATE OF pinyin_text ON public_course_canonicals_staging
-      WHEN NEW.course_id=1
-       AND (SELECT dirty FROM public_precompute_state WHERE id=1)=1
+      AFTER UPDATE OF refresh_lease_until ON public_precompute_state
+      WHEN OLD.refresh_token IS NOT NULL
+       AND NEW.refresh_token IS NOT NULL
        AND NOT EXISTS(
          SELECT 1 FROM course_name_variants
          WHERE course_id=1 AND name='并发刷新别名'
@@ -340,8 +342,9 @@ describe("public list refresh coordination", () => {
     ).run();
     await env.DB.prepare(`
       CREATE TRIGGER issue355_fail_pinyin_refresh
-      BEFORE UPDATE OF pinyin_text ON public_course_canonicals_staging
-      WHEN NEW.course_id=1
+      BEFORE UPDATE OF refresh_lease_until ON public_precompute_state
+      WHEN OLD.refresh_token IS NOT NULL
+       AND NEW.refresh_token IS NOT NULL
       BEGIN
         SELECT RAISE(ABORT,'issue355 pinyin refresh failure');
       END;
