@@ -1,6 +1,7 @@
 import {
   CATALOG_BROWSE_PROJECTION_ENABLED,
   CATALOG_BROWSE_READY_COLUMN,
+  CATALOG_BROWSE_READY_VERSION,
   catalogBrowseProjections,
   stagePublicCatalogBrowse,
 } from "./public-catalog-browse-plan";
@@ -611,10 +612,9 @@ export async function rebuildPublicListProjection({
   await renewLease();
   // Browse staging reads the review-count staging rows committed above.
   // It stays after the pinyin rewrite so a lost lease there still stops
-  // before these tables are filled. #932 turns the writes off entirely.
-  // Migration 0063 can also land later. Either way, skip staging and the
-  // publish below, and do not write catalog_browse_ready (clearing it to 0
-  // would make an older instance rebuild again during the deploy window).
+  // before these tables are filled. Migration 0063 can land later; until
+  // the staging table exists, skip browse staging and do not touch
+  // catalog_browse_ready.
   const catalogBrowse =
     CATALOG_BROWSE_PROJECTION_ENABLED &&
     (await hasProjectionTable(db, "public_relation_browse_staging"));
@@ -762,13 +762,13 @@ export async function rebuildPublicListProjection({
     publish.push(
       db.prepare(
         `UPDATE public_precompute_state
-         SET ${CATALOG_BROWSE_READY_COLUMN}=1
+         SET ${CATALOG_BROWSE_READY_COLUMN}=${CATALOG_BROWSE_READY_VERSION}
          WHERE id=1
            AND dirty=1
            AND generation=?
            AND refresh_token=?
            AND refresh_lease_until>unixepoch()
-           AND ${CATALOG_BROWSE_READY_COLUMN} IS NOT 1`,
+           AND ${CATALOG_BROWSE_READY_COLUMN} IS NOT ${CATALOG_BROWSE_READY_VERSION}`,
       ).bind(generation, token),
     );
   }

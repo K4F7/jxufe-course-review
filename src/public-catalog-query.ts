@@ -646,7 +646,7 @@ export async function queryPublicCourses(
   precompute: PublicPrecomputeReadOptions = {},
 ): Promise<PublicCatalogPage<PublicCourseListItem>> {
   await ensurePublicListPrecomputes(db, precompute);
-  // #932: a disabled browse projection must not mark dirty or rebuild.
+  // #931: browse reads use the projection only at the current ready version.
   if (
     CATALOG_BROWSE_PROJECTION_ENABLED &&
     canUsePrecomputedCatalogBrowse(query)
@@ -854,7 +854,7 @@ export async function queryPublicCourseRelations(
   precompute: PublicPrecomputeReadOptions = {},
 ): Promise<PublicCatalogPage<PublicRelationListItem>> {
   await ensurePublicListPrecomputes(db, precompute);
-  // #932: a disabled browse projection must not mark dirty or rebuild.
+  // #931: browse reads use the projection only at the current ready version.
   if (
     CATALOG_BROWSE_PROJECTION_ENABLED &&
     canUsePrecomputedCatalogBrowse(query)
