@@ -1,3 +1,8 @@
+import {
+  CATALOG_BROWSE_READY_COLUMN,
+  catalogBrowseProjections,
+  stagePublicCatalogBrowse,
+} from "./public-catalog-browse-plan";
 import { catalogPinyinText } from "./lib/catalog-pinyin";
 import {
   PE_SKILL_FAMILIES,
@@ -675,6 +680,25 @@ export async function rebuildPublicListProjection({
     active,
   );
   await renewLease();
+  // Browse staging reads the review-count staging rows committed above.
+  // It stays after the pinyin rewrite so a lost lease there still stops
+  // before these tables are filled. Migration 0063 can land later; skip
+  // the new tables until then and leave catalog_browse_ready at 0.
+  const catalogBrowse = await hasProjectionTable(
+    db,
+    "public_relation_browse_staging",
+  );
+  if (catalogBrowse) {
+    await stagePublicCatalogBrowse({
+      db,
+      generation,
+      token,
+      renewLease,
+      canonicals: staging.canonicals,
+      reviewCounts: staging.reviewCounts,
+      relationRatings: staging.relationRatings,
+    });
+  }
   const publishTable = (
     table: string,
     stagingTable: string,
@@ -764,6 +788,57 @@ export async function rebuildPublicListProjection({
            AND refresh_token=?
            AND refresh_lease_until>unixepoch()
            AND teacher_review_counts_ready IS NOT 1`,
+      ).bind(generation, token),
+    );
+  }
+  if (catalogBrowse) {
+    const publishBrowse = (
+      table: string,
+      stagingTable: string,
+      columns: readonly string[],
+      keys: readonly string[],
+    ) => {
+      const keyOnly =
+        columns.length === keys.length &&
+        keys.every((key, index) => key === columns[index]);
+      if (!keyOnly) return publishTable(table, stagingTable, columns, keys);
+      return [
+        bindLease(
+          db,
+          `INSERT INTO ${table}(${columns.join(",")})
+           SELECT ${columns.join(",")} FROM ${stagingTable}
+           WHERE ${refreshLeaseGuard}
+           ON CONFLICT(${keys.join(",")}) DO NOTHING`,
+          generation,
+          token,
+        ),
+        bindLease(
+          db,
+          staleKeyDelete(
+            table,
+            keys,
+            `SELECT ${keys.join(",")} FROM ${stagingTable}`,
+          ),
+          generation,
+          token,
+        ),
+      ];
+    };
+    for (const spec of catalogBrowseProjections) {
+      publish.push(
+        ...publishBrowse(spec.active, spec.staging, spec.columns, spec.keys),
+      );
+    }
+    publish.push(
+      db.prepare(
+        `UPDATE public_precompute_state
+         SET ${CATALOG_BROWSE_READY_COLUMN}=1
+         WHERE id=1
+           AND dirty=1
+           AND generation=?
+           AND refresh_token=?
+           AND refresh_lease_until>unixepoch()
+           AND ${CATALOG_BROWSE_READY_COLUMN} IS NOT 1`,
       ).bind(generation, token),
     );
   }

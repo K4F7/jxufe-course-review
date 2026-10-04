@@ -1,3 +1,4 @@
+import { CATALOG_BROWSE_READY_COLUMN } from "./public-catalog-browse-plan";
 import { rebuildPublicListProjection } from "./public-list-projection-plan";
 
 const publicListMutationRoutes: ReadonlyArray<readonly [string, RegExp]> = [
@@ -204,6 +205,52 @@ async function refreshPublicListPrecomputesAttempt(
 export function isMissingPublicSchemaError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /no such (table|column|index)|no query solution/i.test(message);
+}
+
+/** True once migration 0063's catalog browse projection has been published. */
+export async function ensureCatalogBrowseProjection(
+  db: D1Database,
+): Promise<boolean> {
+  let ready = 0;
+  try {
+    const row = await db
+      .prepare(
+        `SELECT ${CATALOG_BROWSE_READY_COLUMN} ready
+         FROM public_precompute_state WHERE id=1`,
+      )
+      .first<{ ready: number }>();
+    if (!row) return false;
+    ready = Number(row.ready) || 0;
+  } catch (error) {
+    if (isMissingPublicSchemaError(error)) return false;
+    throw error;
+  }
+  if (ready === 1) return true;
+  try {
+    await db
+      .prepare(
+        `UPDATE public_precompute_state
+         SET dirty=1
+         WHERE id=1 AND ${CATALOG_BROWSE_READY_COLUMN}=0`,
+      )
+      .run();
+    await refreshPublicListPrecomputes(db);
+  } catch (error) {
+    if (isMissingPublicSchemaError(error)) return false;
+    throw error;
+  }
+  try {
+    const row = await db
+      .prepare(
+        `SELECT ${CATALOG_BROWSE_READY_COLUMN} ready
+         FROM public_precompute_state WHERE id=1`,
+      )
+      .first<{ ready: number }>();
+    return Number(row?.ready) === 1;
+  } catch (error) {
+    if (isMissingPublicSchemaError(error)) return false;
+    throw error;
+  }
 }
 
 /** True once migration 0061's teacher review projection has been published. */
