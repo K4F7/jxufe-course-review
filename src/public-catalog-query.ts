@@ -344,6 +344,61 @@ function byRelationReviews(a: RelationRow, b: RelationRow) {
 /** First 10 pages at the default pageSize; deeper pages keep the generic merge. */
 const RELATION_BROWSE_FAST_OFFSET_LIMIT = 200;
 const RELATION_BROWSE_REAL_FETCH_CAP = 1000;
+const RELATION_REVIEW_COUNT_BROWSE_INDEX =
+  "idx_public_review_counts_review_count";
+const RELATION_RATING_BROWSE_INDEX = "idx_public_relation_ratings_rating";
+
+/**
+ * `indexed` pins the sort-key index. Only the unfiltered reviews threshold
+ * probe sets it. The page query leaves the plan free so `review_count >= ?`
+ * can range-scan. A category filter must not pin the index: `is_public_sports`
+ * and `scheme_key` are selective, and walking review_count / rating order
+ * reads almost every aggregate row.
+ */
+export function relationBrowseAggregateFromSql(
+  sort: PublicRelationListSort,
+  indexed = false,
+): string {
+  if (sort === "rating") {
+    const index = indexed ? ` INDEXED BY ${RELATION_RATING_BROWSE_INDEX}` : "";
+    return `FROM public_relation_ratings rel_rating${index}
+      JOIN courses c ON c.id=rel_rating.course_id
+      ${publicCourseCanonicalJoin}
+      JOIN course_teachers ct
+        ON ct.course_id=c.id AND ct.teacher_id=rel_rating.teacher_id
+      JOIN teachers t ON t.id=rel_rating.teacher_id
+      LEFT JOIN public_review_counts rel_counts
+        ON rel_counts.course_id=c.id AND rel_counts.teacher_id=t.id`;
+  }
+  const index = indexed
+    ? ` INDEXED BY ${RELATION_REVIEW_COUNT_BROWSE_INDEX}`
+    : "";
+  return `FROM public_review_counts rel_counts${index}
+      JOIN courses c ON c.id=rel_counts.course_id
+      ${publicCourseCanonicalJoin}
+      JOIN course_teachers ct
+        ON ct.course_id=c.id AND ct.teacher_id=rel_counts.teacher_id
+      JOIN teachers t ON t.id=rel_counts.teacher_id
+      LEFT JOIN public_relation_ratings rel_rating
+        ON rel_rating.course_id=c.id AND rel_rating.teacher_id=t.id`;
+}
+
+function relationBrowseThresholdKey(sort: PublicRelationListSort): string {
+  return sort === "rating" ? "rel_rating.rating" : "rel_counts.review_count";
+}
+
+/** Same joins and WHERE as the page, ordered only by the indexed sort key. */
+export function relationBrowseThresholdProbeSql(
+  sort: PublicRelationListSort,
+  where: string,
+): string {
+  const key = relationBrowseThresholdKey(sort);
+  return `SELECT ${key} AS sort_threshold
+     ${relationBrowseAggregateFromSql(sort, true)}
+     WHERE ${where}
+     ORDER BY ${key} DESC
+     LIMIT 1 OFFSET ?`;
+}
 
 function canUseRelationBrowseFastPath(
   query: PublicRelationListQuery,
@@ -355,6 +410,19 @@ function canUseRelationBrowseFastPath(
     query.teacherId == null &&
     (query.sort === "reviews" || query.sort === "rating")
   );
+}
+
+/**
+ * Pin review_count order only for the dense unfiltered reviews browse.
+ * Category filters (sports especially) are selective, so INDEXED BY scans
+ * nearly the whole aggregate before the rank is filled. Rating lists already
+ * stop on the rating index; the extra probe only adds reads. Both fall back
+ * to the #927 aggregate query and let the planner choose.
+ */
+export function relationBrowseUsesIndexedThreshold(
+  query: Pick<PublicRelationListQuery, "category" | "sort">,
+): boolean {
+  return query.category.trim() === "" && query.sort === "reviews";
 }
 
 async function loadPrecomputedRelationTotal(
@@ -374,7 +442,14 @@ async function loadPrecomputedRelationTotal(
   }
 }
 
-async function loadRelationBrowseFromAggregate(
+/**
+ * The name key blocks an index-ordered stop. Read the indexed sort key at the
+ * last requested rank under the same WHERE (filters drop aggregate rows, so the
+ * rank is not the raw index offset). Keep every row at or above that key, then
+ * apply the full order. No threshold when the filtered set is shorter than the
+ * window; ties at the boundary stay in the candidate set.
+ */
+async function loadRelationBrowseThreshold(
   db: D1Database,
   input: {
     sort: PublicRelationListSort;
@@ -383,30 +458,42 @@ async function loadRelationBrowseFromAggregate(
     limit: number;
     offset: number;
   },
+): Promise<number | null> {
+  const rank = input.offset + input.limit;
+  if (rank < 1) return null;
+  const row = await db
+    .prepare(relationBrowseThresholdProbeSql(input.sort, input.where))
+    .bind(...input.args, rank - 1)
+    .first<{ sort_threshold: number | null }>();
+  if (row?.sort_threshold == null) return null;
+  const value = Number(row.sort_threshold);
+  return Number.isFinite(value) ? value : null;
+}
+
+async function loadRelationBrowseFromAggregate(
+  db: D1Database,
+  input: {
+    sort: PublicRelationListSort;
+    where: string;
+    args: unknown[];
+    limit: number;
+    offset: number;
+    indexedThreshold: boolean;
+  },
 ): Promise<RelationRow[]> {
-  const fromSql =
-    input.sort === "rating"
-      ? `FROM public_relation_ratings rel_rating
-      JOIN courses c ON c.id=rel_rating.course_id
-      ${publicCourseCanonicalJoin}
-      JOIN course_teachers ct
-        ON ct.course_id=c.id AND ct.teacher_id=rel_rating.teacher_id
-      JOIN teachers t ON t.id=rel_rating.teacher_id
-      LEFT JOIN public_review_counts rel_counts
-        ON rel_counts.course_id=c.id AND rel_counts.teacher_id=t.id`
-      : `FROM public_review_counts rel_counts
-      JOIN courses c ON c.id=rel_counts.course_id
-      ${publicCourseCanonicalJoin}
-      JOIN course_teachers ct
-        ON ct.course_id=c.id AND ct.teacher_id=rel_counts.teacher_id
-      JOIN teachers t ON t.id=rel_counts.teacher_id
-      LEFT JOIN public_relation_ratings rel_rating
-        ON rel_rating.course_id=c.id AND rel_rating.teacher_id=t.id`;
+  const fromSql = relationBrowseAggregateFromSql(input.sort);
   const nameSortSql = publicRelationNameSortSql("c", "t");
   const orderBy =
     input.sort === "rating"
       ? relationRatingOrderSql(nameSortSql)
       : relationReviewsOrderSql(nameSortSql);
+  const threshold = input.indexedThreshold
+    ? await loadRelationBrowseThreshold(db, input)
+    : null;
+  const thresholdSql =
+    threshold == null
+      ? ""
+      : ` AND ${relationBrowseThresholdKey(input.sort)} >= ?`;
   const { results } = await db
     .prepare(
       `SELECT c.id course_id,c.code,c.name,c.category,c.department,
@@ -414,11 +501,16 @@ async function loadRelationBrowseFromAggregate(
        rel_rating.rating,
        COALESCE(rel_counts.review_count,0) review_count
       ${fromSql}
-     WHERE ${input.where}
+     WHERE ${input.where}${thresholdSql}
      ORDER BY ${orderBy}
      LIMIT ? OFFSET ?`,
     )
-    .bind(...input.args, input.limit, input.offset)
+    .bind(
+      ...input.args,
+      ...(threshold == null ? [] : [threshold]),
+      input.limit,
+      input.offset,
+    )
     .all<RelationRow>();
   return results ?? [];
 }
@@ -806,6 +898,7 @@ export async function queryPublicCourseRelations(
           args,
           limit: take,
           offset: extrasTotal === 0 ? start : 0,
+          indexedThreshold: relationBrowseUsesIndexedThreshold(query),
         });
         const listed = fastRows.map((row) => withPublicRelationNames(row));
         const compare = sort === "rating" ? byRelationRating : byRelationReviews;
