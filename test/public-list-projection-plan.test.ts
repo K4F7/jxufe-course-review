@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { catalogPinyinText } from "../src/lib/catalog-pinyin";
 import {
   publicCourseCanonicalJoin,
   publicCourseMatchJoin,
@@ -461,6 +462,197 @@ describe("public list projection plan", () => {
       await env.DB.prepare(
         "DELETE FROM teachers WHERE id BETWEEN 57480 AND 57521",
       ).run();
+    }
+  });
+
+  it("rewrites pinyin and published rows only when the source text changed", async () => {
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO teachers(id,source_teacher_label,name,department)
+         VALUES(92121,'张三','张三','数学学院'),(92122,'李四','李四','统计学院')`,
+      ),
+      env.DB.prepare(
+        `INSERT INTO courses(id,code,name,category,department)
+         VALUES(92120,'MATH921','高等数学','general','数学学院'),
+               (92123,'MATH922','线性代数','general','数学学院')`,
+      ),
+      env.DB.prepare(
+        `INSERT INTO course_teachers(course_id,teacher_id)
+         VALUES(92120,92121),(92123,92122)`,
+      ),
+      env.DB.prepare(
+        "INSERT INTO course_name_variants(course_id,name) VALUES(92120,'高数')",
+      ),
+    ]);
+    const logWrites = async () => {
+      const rows = await env.DB.prepare(
+        "SELECT op,entity,row_key FROM projection_write_log ORDER BY id",
+      ).all<{ op: string; entity: string; row_key: string }>();
+      return rows.results;
+    };
+    try {
+      await rebuildWithLease();
+      const coursePinyin = async (courseId: number) =>
+        (
+          await env.DB.prepare(
+            "SELECT pinyin_text FROM public_course_canonicals WHERE course_id=?",
+          )
+            .bind(courseId)
+            .first<{ pinyin_text: string }>()
+        )?.pinyin_text;
+      const teacherPinyin = async (teacherId: number) =>
+        (
+          await env.DB.prepare(
+            "SELECT pinyin_text,match_text FROM public_teacher_search WHERE teacher_id=?",
+          )
+            .bind(teacherId)
+            .first<{ pinyin_text: string; match_text: string }>()
+        );
+      const originalCourse = await coursePinyin(92120);
+      const originalOther = await coursePinyin(92123);
+      const originalTeacher = await teacherPinyin(92121);
+      const originalOtherTeacher = await teacherPinyin(92122);
+      expect(originalCourse).toContain("gaodengshuxue");
+      expect(originalTeacher?.pinyin_text).toContain("zhangsan");
+
+      await env.DB.batch([
+        env.DB.prepare(
+          `CREATE TABLE projection_write_log(
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             op TEXT NOT NULL,
+             entity TEXT NOT NULL,
+             row_key TEXT NOT NULL
+           )`,
+        ),
+        env.DB.prepare(
+          `CREATE TRIGGER projection_write_log_course_update
+           AFTER UPDATE ON public_course_canonicals
+           BEGIN
+             INSERT INTO projection_write_log(op,entity,row_key)
+             VALUES('update','course',NEW.course_id);
+           END`,
+        ),
+        env.DB.prepare(
+          `CREATE TRIGGER projection_write_log_course_insert
+           AFTER INSERT ON public_course_canonicals
+           BEGIN
+             INSERT INTO projection_write_log(op,entity,row_key)
+             VALUES('insert','course',NEW.course_id);
+           END`,
+        ),
+        env.DB.prepare(
+          `CREATE TRIGGER projection_write_log_course_delete
+           AFTER DELETE ON public_course_canonicals
+           BEGIN
+             INSERT INTO projection_write_log(op,entity,row_key)
+             VALUES('delete','course',OLD.course_id);
+           END`,
+        ),
+        env.DB.prepare(
+          `CREATE TRIGGER projection_write_log_teacher_update
+           AFTER UPDATE ON public_teacher_search
+           BEGIN
+             INSERT INTO projection_write_log(op,entity,row_key)
+             VALUES('update','teacher',NEW.teacher_id);
+           END`,
+        ),
+        env.DB.prepare(
+          `CREATE TRIGGER projection_write_log_teacher_insert
+           AFTER INSERT ON public_teacher_search
+           BEGIN
+             INSERT INTO projection_write_log(op,entity,row_key)
+             VALUES('insert','teacher',NEW.teacher_id);
+           END`,
+        ),
+        env.DB.prepare(
+          `CREATE TRIGGER projection_write_log_teacher_delete
+           AFTER DELETE ON public_teacher_search
+           BEGIN
+             INSERT INTO projection_write_log(op,entity,row_key)
+             VALUES('delete','teacher',OLD.teacher_id);
+           END`,
+        ),
+        env.DB.prepare(
+          `CREATE TRIGGER projection_write_log_course_pinyin
+           AFTER UPDATE ON public_course_canonicals_staging
+           WHEN OLD.pinyin_text IS NOT NEW.pinyin_text
+           BEGIN
+             INSERT INTO projection_write_log(op,entity,row_key)
+             VALUES('pinyin','course_staging',NEW.course_id);
+           END`,
+        ),
+        env.DB.prepare(
+          `CREATE TRIGGER projection_write_log_teacher_pinyin
+           AFTER UPDATE ON public_teacher_search_staging
+           WHEN OLD.pinyin_text IS NOT NEW.pinyin_text
+           BEGIN
+             INSERT INTO projection_write_log(op,entity,row_key)
+             VALUES('pinyin','teacher_staging',NEW.teacher_id);
+           END`,
+        ),
+      ]);
+
+      await rebuildWithLease();
+      expect(await logWrites()).toEqual([]);
+      expect(await coursePinyin(92120)).toBe(originalCourse);
+      expect(await teacherPinyin(92121)).toEqual(originalTeacher);
+
+      await env.DB.batch([
+        env.DB.prepare("UPDATE courses SET name='数学分析' WHERE id=92120"),
+        env.DB.prepare(
+          "UPDATE teachers SET department='应用数学学院' WHERE id=92121",
+        ),
+        env.DB.prepare("DELETE FROM projection_write_log"),
+      ]);
+      await rebuildWithLease();
+      const writes = await logWrites();
+      const keys = (entity: string) =>
+        writes.filter((row) => row.entity === entity).map((row) => row.row_key);
+      expect(keys("course")).toEqual(["92120"]);
+      expect(keys("teacher")).toEqual(["92121"]);
+      expect(keys("course_staging")).toEqual(["92120"]);
+      expect(keys("teacher_staging")).toEqual([]);
+      expect(await coursePinyin(92123)).toBe(originalOther);
+      expect(await teacherPinyin(92122)).toEqual(originalOtherTeacher);
+      const renamed = await coursePinyin(92120);
+      // Renaming keeps the previous course name as a variant, so both names are pinyin source.
+      const variantNames = (
+        await env.DB.prepare(
+          "SELECT name FROM course_name_variants WHERE course_id=92120 ORDER BY name",
+        ).all<{ name: string }>()
+      ).results.map((row) => row.name);
+      expect(variantNames).toEqual(expect.arrayContaining(["高等数学", "高数", "数学分析"]));
+      for (const token of [
+        catalogPinyinText(["数学分析"]),
+        catalogPinyinText(["张三"]),
+        catalogPinyinText(["高数"]),
+        catalogPinyinText(["高等数学"]),
+      ]) {
+        expect(renamed).toContain(token.split(" ")[0]);
+      }
+      expect(renamed).not.toBe(originalCourse);
+      const moved = await teacherPinyin(92121);
+      expect(moved?.pinyin_text).toBe(originalTeacher?.pinyin_text);
+      expect(moved?.match_text).toContain("应用数学学院");
+      expect(moved?.match_text).not.toBe(originalTeacher?.match_text);
+    } finally {
+      await env.DB.batch([
+        env.DB.prepare("DROP TRIGGER IF EXISTS projection_write_log_course_update"),
+        env.DB.prepare("DROP TRIGGER IF EXISTS projection_write_log_course_insert"),
+        env.DB.prepare("DROP TRIGGER IF EXISTS projection_write_log_course_delete"),
+        env.DB.prepare("DROP TRIGGER IF EXISTS projection_write_log_teacher_update"),
+        env.DB.prepare("DROP TRIGGER IF EXISTS projection_write_log_teacher_insert"),
+        env.DB.prepare("DROP TRIGGER IF EXISTS projection_write_log_teacher_delete"),
+        env.DB.prepare("DROP TRIGGER IF EXISTS projection_write_log_course_pinyin"),
+        env.DB.prepare("DROP TRIGGER IF EXISTS projection_write_log_teacher_pinyin"),
+        env.DB.prepare("DROP TABLE IF EXISTS projection_write_log"),
+        env.DB.prepare("DELETE FROM course_name_variants WHERE course_id=92120"),
+        env.DB.prepare(
+          "DELETE FROM course_teachers WHERE course_id IN (92120,92123)",
+        ),
+        env.DB.prepare("DELETE FROM courses WHERE id IN (92120,92123)"),
+        env.DB.prepare("DELETE FROM teachers WHERE id IN (92121,92122)"),
+      ]);
     }
   });
 });
