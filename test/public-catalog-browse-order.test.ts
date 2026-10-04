@@ -625,6 +625,10 @@ beforeAll(async () => {
   }
 
   await ensurePublicListPrecomputes(env.DB);
+  const ready = await env.DB.prepare(
+    "SELECT catalog_browse_ready ready FROM public_precompute_state WHERE id=1",
+  ).first<{ ready: number }>();
+  expect(Number(ready?.ready)).toBe(1);
   filters.push(
     { category: "", department, teacherId: null },
     { category: "sports", department, teacherId: null },
@@ -800,7 +804,13 @@ describe("公共目录浏览全序", () => {
     } finally {
       console.error = originalError;
     }
-    expect(failures.filter((line) => line.includes("relation_browse_fast_path_failed"))).toEqual([]);
+    expect(
+      failures.filter(
+        (line) =>
+          line.includes("relation_browse_fast_path_failed") ||
+          line.includes("catalog_browse_fallback"),
+      ),
+    ).toEqual([]);
 
     const departmentCourses = sortCourses(
       await expectedCourses({ category: "", department, teacherId: null }),

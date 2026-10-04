@@ -21,6 +21,7 @@ import {
   publicCourseDisplayName,
   publicCourseDisplayNameSql,
   publicCourseVisibleSql,
+  isPublicListCategoryFilter,
   publicRelationNameSortKey,
   publicRelationNameSortKeySql,
   publicRelationNameSortSql,
@@ -39,6 +40,11 @@ import {
 } from "./lib/relation-projections";
 import type { PublicDimensionLabel } from "./lib/review-schemes";
 import {
+  loadPrecomputedCoursePage,
+  loadPrecomputedRelationPage,
+} from "./public-catalog-browse";
+import {
+  ensureCatalogBrowseProjection,
   ensurePublicListPrecomputes,
   ensureTeacherReviewCountProjection,
   isMissingPublicSchemaError,
@@ -610,7 +616,49 @@ function relationSortKey(item: RelationRow): string {
   });
 }
 
+function canUsePrecomputedCatalogBrowse(query: {
+  q: string;
+  category: string;
+}): boolean {
+  return (
+    parseSearchTerms(query.q).length === 0 &&
+    (!query.category || isPublicListCategoryFilter(query.category))
+  );
+}
+
+function logCatalogBrowseFallback(
+  surface: "courses" | "relations",
+  error: unknown,
+) {
+  console.error(
+    JSON.stringify({
+      event: "catalog_browse_fallback",
+      surface,
+      message: error instanceof Error ? error.message : String(error),
+    }),
+  );
+}
+
 export async function queryPublicCourses(
+  db: D1Database,
+  query: PublicCourseListQuery,
+  precompute: PublicPrecomputeReadOptions = {},
+): Promise<PublicCatalogPage<PublicCourseListItem>> {
+  await ensurePublicListPrecomputes(db, precompute);
+  if (canUsePrecomputedCatalogBrowse(query)) {
+    try {
+      if (await ensureCatalogBrowseProjection(db)) {
+        return await loadPrecomputedCoursePage(db, query);
+      }
+    } catch (error) {
+      if (!isMissingPublicSchemaError(error)) throw error;
+      logCatalogBrowseFallback("courses", error);
+    }
+  }
+  return queryPublicCoursesLegacy(db, query, precompute);
+}
+
+export async function queryPublicCoursesLegacy(
   db: D1Database,
   query: PublicCourseListQuery,
   precompute: PublicPrecomputeReadOptions = {},
@@ -795,6 +843,35 @@ export async function queryPublicCourses(
 type RelationMergeKind = "name" | "rating" | "reviews";
 
 export async function queryPublicCourseRelations(
+  db: D1Database,
+  query: PublicRelationListQuery,
+  viewerUserId: string | null,
+  precompute: PublicPrecomputeReadOptions = {},
+): Promise<PublicCatalogPage<PublicRelationListItem>> {
+  await ensurePublicListPrecomputes(db, precompute);
+  if (canUsePrecomputedCatalogBrowse(query)) {
+    try {
+      if (await ensureCatalogBrowseProjection(db)) {
+        const page = await loadPrecomputedRelationPage(db, query);
+        return {
+          ...page,
+          items: await attachRelationProjection(db, page.items, viewerUserId),
+        };
+      }
+    } catch (error) {
+      if (!isMissingPublicSchemaError(error)) throw error;
+      logCatalogBrowseFallback("relations", error);
+    }
+  }
+  return queryPublicCourseRelationsLegacy(
+    db,
+    query,
+    viewerUserId,
+    precompute,
+  );
+}
+
+export async function queryPublicCourseRelationsLegacy(
   db: D1Database,
   query: PublicRelationListQuery,
   viewerUserId: string | null,
