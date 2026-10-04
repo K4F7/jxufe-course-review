@@ -28,6 +28,8 @@ import {
   publicCourseBrowseNameBeforeSql,
   queryPublicCourseRelations,
   queryPublicCourses,
+  relationBrowseAggregateFromSql,
+  relationBrowseThresholdProbeSql,
   type PublicCatalogPage,
   type PublicCourseListItem,
   type PublicCourseListSort,
@@ -144,6 +146,31 @@ async function bindTeacher(courseId: number, teacherId: number) {
   )
     .bind(courseId, teacherId)
     .run();
+}
+
+async function insertCountedRelation(input: {
+  name: string;
+  category?: "general" | "sports";
+  scheme: string;
+  teacherId: number;
+  reviews: number;
+  overall: number;
+}) {
+  const courseId = await insertCourse({
+    code: `${stamp}-${input.name}`,
+    name: input.name,
+    category: input.category,
+    scheme: input.scheme,
+  });
+  await bindTeacher(courseId, input.teacherId);
+  for (let index = 0; index < input.reviews; index += 1) {
+    await insertReview({
+      courseId,
+      teacherId: input.teacherId,
+      overall: input.overall,
+      comment: `${stamp}-${input.name}-${index}-评价正文足够长`,
+    });
+  }
 }
 
 async function insertReview(input: {
@@ -557,6 +584,45 @@ beforeAll(async () => {
     });
   }
 
+  // Reverse name order so a review-count/rating tie is not already in id order.
+  // High band, a wide tie, then a lower band: a page that ends in the tie must
+  // keep every tie row before sorting by the course-name key.
+  for (const [prefix, category, scheme] of [
+    ["平局课", "general", "major"],
+    ["平局体", "sports", "pe"],
+  ] as const) {
+    for (const name of ["甲", "乙"]) {
+      await insertCountedRelation({
+        name: `${prefix}高${stamp}${name}`,
+        category,
+        scheme,
+        teacherId: ids.jia,
+        reviews: 4,
+        overall: 5,
+      });
+    }
+    for (let index = 7; index >= 0; index -= 1) {
+      await insertCountedRelation({
+        name: `${prefix}${stamp}-${String(index).padStart(2, "0")}`,
+        category,
+        scheme,
+        teacherId: ids.jia,
+        reviews: 2,
+        overall: 4,
+      });
+    }
+    for (let index = 0; index < 3; index += 1) {
+      await insertCountedRelation({
+        name: `${prefix}低${stamp}-${index}`,
+        category,
+        scheme,
+        teacherId: ids.jia,
+        reviews: 1,
+        overall: 3,
+      });
+    }
+  }
+
   await ensurePublicListPrecomputes(env.DB);
   filters.push(
     { category: "", department, teacherId: null },
@@ -800,4 +866,319 @@ describe("公共目录浏览全序", () => {
     const mathFastFirst = seen.get(["relations", "math", "", "", "reviews"].join(":"))?.[0] ?? "";
     expect(mathFastFirst).toContain(publicRelationIdentity(ids.linear, ids.jia));
   }, 180_000);
+
+  it("关系快路径在阈值平局、行数不足和类别过滤下与全序一致", async () => {
+    const failures: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      failures.push(args.map((part) => String(part)).join(" "));
+      originalError(...args);
+    };
+    try {
+      const sameKey = (
+        sort: PublicRelationListSort,
+        left: RelationSortRow,
+        right: RelationSortRow,
+      ) =>
+        sort === "rating"
+          ? left.rating != null && left.rating === right.rating
+          : left.review_count === right.review_count;
+
+      for (const category of ["", "sports", "general"]) {
+        for (const sort of ["reviews", "rating"] as const) {
+          const filter = { category, department: "", teacherId: null };
+          const expected = sortRelations(await expectedRelations(filter), sort);
+          const pageSize = 5;
+          let tiedPage = 0;
+          const windowEnd = category === "general" ? expected.length : Math.min(expected.length, 200);
+          for (let page = 1; page * pageSize < windowEnd; page += 1) {
+            const end = page * pageSize - 1;
+            if (sort === "rating" ? expected[end].rating == null : expected[end].review_count <= 0) {
+              continue;
+            }
+            if (!sameKey(sort, expected[end], expected[end + 1])) continue;
+            const key = sort === "rating" ? expected[end].rating : expected[end].review_count;
+            const band = expected.filter((row) =>
+              sort === "rating" ? row.rating === key : row.review_count === key,
+            );
+            if (band.length < 8) continue;
+            tiedPage = page;
+            break;
+          }
+          expect(tiedPage, `${category} ${sort} 应在快路径窗口内有至少 8 行平局`).toBeGreaterThan(0);
+          const items = await queryPublicCourseRelations(
+            env.DB,
+            {
+              page: tiedPage,
+              pageSize,
+              q: "",
+              category,
+              department: "",
+              teacherId: null,
+              sort,
+            },
+            null,
+          );
+          expect(items.items.map(relationSignature)).toEqual(
+            expected.slice((tiedPage - 1) * pageSize, tiedPage * pageSize).map(relationSignature),
+          );
+        }
+      }
+
+      for (const sort of ["reviews", "rating"] as const) {
+        const filter = { category: "ideology", department: "", teacherId: null };
+        const expected = sortRelations(await expectedRelations(filter), sort);
+        const pageSize = expected.length + 5;
+        const page = await queryPublicCourseRelations(
+          env.DB,
+          {
+            page: 1,
+            pageSize,
+            q: "",
+            category: "ideology",
+            department: "",
+            teacherId: null,
+            sort,
+          },
+          null,
+        );
+        expect(page.total).toBe(expected.length);
+        expect(page.items.map(relationSignature)).toEqual(expected.map(relationSignature));
+        const past = await queryPublicCourseRelations(
+          env.DB,
+          {
+            page: 400,
+            pageSize: 10,
+            q: "",
+            category: "ideology",
+            department: "",
+            teacherId: null,
+            sort,
+          },
+          null,
+        );
+        expect(past.items).toEqual([]);
+        expect(past.total).toBe(expected.length);
+      }
+    } finally {
+      console.error = originalError;
+    }
+    expect(failures.filter((line) => line.includes("relation_browse_fast_path_failed"))).toEqual([]);
+
+    const scope = publicCatalogListScope({ category: "", department: "", teacherId: null });
+    const fastWhere = `${publicCourseVisibleSql("c")} AND ${publicPeMappedSourceRelationExcludeSql("c", "ct")} AND ${scope.sql}`;
+    const sportsScope = publicCatalogListScope({
+      category: "sports",
+      department: "",
+      teacherId: null,
+    });
+    const sportsWhere = `${publicCourseVisibleSql("c")} AND ${publicPeMappedSourceRelationExcludeSql("c", "ct")} AND ${sportsScope.sql}`;
+    const mathScope = publicCatalogListScope({
+      category: "math",
+      department: "",
+      teacherId: null,
+    });
+    const mathWhere = `${publicCourseVisibleSql("c")} AND ${publicPeMappedSourceRelationExcludeSql("c", "ct")} AND ${mathScope.sql}`;
+
+    const assertIndexProbe = async (
+      sort: "reviews" | "rating",
+      where: string,
+      args: unknown[],
+      indexName: string,
+    ) => {
+      const plan = await env.DB.prepare(
+        `EXPLAIN QUERY PLAN ${relationBrowseThresholdProbeSql(sort, where)}`,
+      )
+        .bind(...args, 19)
+        .all<{ detail: string }>();
+      const details = (plan.results ?? []).map((row) => String(row.detail ?? ""));
+      expect(details.some((line) => line.includes(indexName))).toBe(true);
+      expect(details.some((line) => line.includes("USE TEMP B-TREE FOR ORDER BY"))).toBe(false);
+    };
+    await assertIndexProbe("reviews", fastWhere, scope.args, "idx_public_review_counts_review_count");
+    await assertIndexProbe("rating", fastWhere, scope.args, "idx_public_relation_ratings_rating");
+    await assertIndexProbe("reviews", sportsWhere, sportsScope.args, "idx_public_review_counts_review_count");
+    await assertIndexProbe("rating", sportsWhere, sportsScope.args, "idx_public_relation_ratings_rating");
+    await assertIndexProbe("reviews", mathWhere, mathScope.args, "idx_public_review_counts_review_count");
+
+    const teacherId = 928_000_001;
+    const idBase = 928_100_000;
+    const inserted: Array<{ id: number; reviewCount: number; rating: number; name: string }> = [];
+    for (let index = 0; index < 16; index += 1) {
+      inserted.push({
+        id: idBase + index,
+        reviewCount: 1_000_000 - index,
+        rating: 5,
+        name: `阈高${stamp}-${String(index).padStart(2, "0")}`,
+      });
+    }
+    for (let index = 0; index < 24; index += 1) {
+      inserted.push({
+        id: idBase + 16 + index,
+        reviewCount: 500_000,
+        rating: 4,
+        name: `阈平${stamp}-${String(23 - index).padStart(2, "0")}`,
+      });
+    }
+    for (let index = 0; index < 280; index += 1) {
+      inserted.push({
+        id: idBase + 40 + index,
+        reviewCount: 1,
+        rating: 2,
+        name: `阈低${stamp}-${String(index).padStart(3, "0")}`,
+      });
+    }
+    const departmentName = `${stamp}阈院`;
+    const isolatedWhere = `${fastWhere} AND trim(c.department)=trim(?)`;
+    try {
+      await env.DB.prepare(
+        "INSERT INTO teachers(id,source_teacher_label,name,department) VALUES(?,?,?,?)",
+      )
+        .bind(teacherId, `阈师${stamp}`, `阈师${stamp}`, departmentName)
+        .run();
+      const statements = inserted.flatMap((row) => [
+        env.DB.prepare(
+          "INSERT INTO courses(id,code,name,category,department,scheme_key) VALUES(?,?,?,?,?,?)",
+        ).bind(row.id, `928-${row.id}`, row.name, "general", departmentName, "major"),
+        env.DB.prepare(
+          "INSERT INTO course_teachers(course_id,teacher_id) VALUES(?,?)",
+        ).bind(row.id, teacherId),
+        env.DB.prepare(
+          "INSERT INTO public_course_canonicals(course_id,canonical_course_id,is_public_sports) VALUES(?,?,0)",
+        ).bind(row.id, row.id),
+        env.DB.prepare(
+          "INSERT INTO public_review_counts(course_id,teacher_id,review_count) VALUES(?,?,?)",
+        ).bind(row.id, teacherId, row.reviewCount),
+        env.DB.prepare(
+          "INSERT INTO public_relation_ratings(course_id,teacher_id,rating) VALUES(?,?,?)",
+        ).bind(row.id, teacherId, row.rating),
+      ]);
+      for (let offset = 0; offset < statements.length; offset += 80) {
+        await env.DB.batch(statements.slice(offset, offset + 80));
+      }
+
+      const nameSort = publicRelationNameSortSql("c", "t");
+      const runOrdered = async (
+        sort: "reviews" | "rating",
+        limit: number,
+        offset: number,
+      ) => {
+        const order =
+          sort === "rating"
+            ? `(rel_rating.rating IS NULL),rel_rating.rating DESC,COALESCE(rel_counts.review_count,0) DESC,${nameSort}`
+            : `COALESCE(rel_counts.review_count,0) DESC,${nameSort}`;
+        const fromSql = relationBrowseAggregateFromSql(sort);
+        const full = await env.DB.prepare(
+          `SELECT c.id course_id,t.id teacher_id
+           ${fromSql}
+           WHERE ${isolatedWhere}
+           ORDER BY ${order}
+           LIMIT ? OFFSET ?`,
+        )
+          .bind(...scope.args, departmentName, limit, offset)
+          .all<{ course_id: number; teacher_id: number }>();
+        const probe = await env.DB.prepare(
+          relationBrowseThresholdProbeSql(sort, isolatedWhere),
+        )
+          .bind(...scope.args, departmentName, offset + limit - 1)
+          .all<{ sort_threshold: number | null }>();
+        const threshold = probe.results?.[0]?.sort_threshold;
+        expect(threshold).not.toBeNull();
+        const key = sort === "rating" ? "rel_rating.rating" : "rel_counts.review_count";
+        const bounded = await env.DB.prepare(
+          `SELECT c.id course_id,t.id teacher_id
+           ${fromSql}
+           WHERE ${isolatedWhere} AND ${key} >= ?
+           ORDER BY ${order}
+           LIMIT ? OFFSET ?`,
+        )
+          .bind(...scope.args, departmentName, Number(threshold), limit, offset)
+          .all<{ course_id: number; teacher_id: number }>();
+        const signature = (row: { course_id: number; teacher_id: number }) =>
+          `${row.course_id}:${row.teacher_id}`;
+        expect((bounded.results ?? []).map(signature)).toEqual((full.results ?? []).map(signature));
+        const fullRead = Number(full.meta?.rows_read) || 0;
+        const probeRead = Number(probe.meta?.rows_read) || 0;
+        const boundedRead = Number(bounded.meta?.rows_read) || 0;
+        expect(probeRead).toBeGreaterThan(0);
+        expect(fullRead).toBeGreaterThan(probeRead);
+        expect(fullRead).toBeGreaterThan(boundedRead);
+        return { threshold: Number(threshold), fullRead, probeRead, boundedRead };
+      };
+
+      const top = await runOrdered("reviews", 10, 0);
+      expect(top.threshold).toBe(1_000_000 - 9);
+      const tiePage = await runOrdered("reviews", 8, 20);
+      expect(tiePage.threshold).toBe(500_000);
+      const ratedTop = await runOrdered("rating", 10, 0);
+      expect(ratedTop.threshold).toBe(5);
+      const ratedTie = await runOrdered("rating", 8, 20);
+      expect(ratedTie.threshold).toBe(4);
+
+      const unfilteredOrder = `COALESCE(rel_counts.review_count,0) DESC,${nameSort}`;
+      const unfilteredFrom = relationBrowseAggregateFromSql("reviews");
+      const unfilteredFull = await env.DB.prepare(
+        `SELECT c.id course_id,t.id teacher_id
+         ${unfilteredFrom}
+         WHERE ${fastWhere}
+         ORDER BY ${unfilteredOrder}
+         LIMIT ? OFFSET ?`,
+      )
+        .bind(...scope.args, 20, 0)
+        .all<{ course_id: number; teacher_id: number }>();
+      const unfilteredProbe = await env.DB.prepare(
+        relationBrowseThresholdProbeSql("reviews", fastWhere),
+      )
+        .bind(...scope.args, 19)
+        .all<{ sort_threshold: number }>();
+      const unfilteredThreshold = Number(unfilteredProbe.results?.[0]?.sort_threshold);
+      expect(unfilteredThreshold).toBeGreaterThan(1);
+      const unfilteredBounded = await env.DB.prepare(
+        `SELECT c.id course_id,t.id teacher_id
+         ${unfilteredFrom}
+         WHERE ${fastWhere} AND rel_counts.review_count >= ?
+         ORDER BY ${unfilteredOrder}
+         LIMIT ? OFFSET ?`,
+      )
+        .bind(...scope.args, unfilteredThreshold, 20, 0)
+        .all<{ course_id: number; teacher_id: number }>();
+      const pair = (row: { course_id: number; teacher_id: number }) =>
+        `${row.course_id}:${row.teacher_id}`;
+      expect((unfilteredBounded.results ?? []).map(pair)).toEqual(
+        (unfilteredFull.results ?? []).map(pair),
+      );
+      const unfilteredFullRead = Number(unfilteredFull.meta?.rows_read) || 0;
+      const unfilteredProbeRead = Number(unfilteredProbe.meta?.rows_read) || 0;
+      expect(unfilteredProbeRead).toBeGreaterThan(0);
+      expect(unfilteredFullRead).toBeGreaterThan(unfilteredProbeRead);
+
+      const shortProbe = await env.DB.prepare(
+        relationBrowseThresholdProbeSql("reviews", isolatedWhere),
+      )
+        .bind(...scope.args, departmentName, 1_000_000)
+        .all<{ sort_threshold: number }>();
+      expect(shortProbe.results ?? []).toEqual([]);
+    } finally {
+      await env.DB.batch([
+        env.DB.prepare(
+          "DELETE FROM public_review_counts WHERE course_id BETWEEN ? AND ?",
+        ).bind(idBase, idBase + 399),
+        env.DB.prepare(
+          "DELETE FROM public_relation_ratings WHERE course_id BETWEEN ? AND ?",
+        ).bind(idBase, idBase + 399),
+        env.DB.prepare(
+          "DELETE FROM public_course_canonicals WHERE course_id BETWEEN ? AND ?",
+        ).bind(idBase, idBase + 399),
+        env.DB.prepare(
+          "DELETE FROM course_teachers WHERE course_id BETWEEN ? AND ?",
+        ).bind(idBase, idBase + 399),
+        env.DB.prepare("DELETE FROM courses WHERE id BETWEEN ? AND ?").bind(
+          idBase,
+          idBase + 399,
+        ),
+        env.DB.prepare("DELETE FROM teachers WHERE id=?").bind(teacherId),
+      ]);
+      await ensurePublicListPrecomputes(env.DB);
+    }
+  }, 120_000);
 });
