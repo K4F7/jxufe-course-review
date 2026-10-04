@@ -22,6 +22,7 @@ import {
 import { useReviewRecognition } from "./ReviewRecognitionControl";
 import { ReviewNoteContent } from "./ReviewNoteContent";
 import { ReviewAuthor } from "./ReviewAuthor";
+import { ReviewSourceLabel } from "./ReviewSourceLabel";
 import { RouterAriaLink } from "./RouterAriaLink";
 
 /**
@@ -197,6 +198,7 @@ function PublicReviewItem({
                 publicCode={review.author_public_code}
                 avatarKey={review.author_avatar_key}
               />
+              <ReviewSourceLabel label={review.source_label} />
               {review.overall != null ? (
                 <StarsWithCaption
                   rating={review.overall}

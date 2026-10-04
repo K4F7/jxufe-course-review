@@ -1,3 +1,4 @@
+import { sourceLabelForPackageContract } from "./historical-review-packages";
 import {
   publicCourseCategory,
   publicCourseDisplayName,
@@ -32,11 +33,14 @@ const fail = (c: AppContext, error: string, status = 400) =>
 
 const PROFILE_REVIEW_PAGE_SIZE = 50;
 
+export const RESERVED_PUBLIC_PROFILE_NOTE =
+  "来自以前的学长学姐的评价，部分整理自 QQ 频道「江西财经大学」";
+
 const reservedReviewsUnion = `
   SELECT 'historical:' || phr.id id, phr.course_id, phr.teacher_id, phr.comment,
     NULL comment_format, '' headline, NULL grade,
     c.name course_name, c.code course_code, t.name teacher_name,
-    phr.imported_at created_at
+    phr.imported_at created_at, phr.package_contract package_contract
   FROM public_historical_reviews phr
   JOIN courses c ON c.id=phr.course_id
   JOIN teachers t ON t.id=phr.teacher_id
@@ -45,7 +49,7 @@ const reservedReviewsUnion = `
   SELECT 'review:' || r.id id, r.course_id, r.teacher_id, r.comment,
     r.comment_format, r.headline, r.grade,
     c.name course_name, c.code course_code, t.name teacher_name,
-    r.created_at
+    r.created_at, NULL AS package_contract
   FROM reviews r
   JOIN courses c ON c.id=r.course_id
   JOIN teachers t ON t.id=r.teacher_id
@@ -58,7 +62,7 @@ const authoredReviewsSql = `
   SELECT 'review:' || r.id id, r.course_id, r.teacher_id, r.comment,
     r.comment_format, r.headline, r.grade,
     c.name course_name, c.code course_code, t.name teacher_name,
-    r.created_at
+    r.created_at, NULL AS package_contract
   FROM reviews r
   JOIN courses c ON c.id=r.course_id
   JOIN teachers t ON t.id=r.teacher_id
@@ -79,6 +83,7 @@ type PublicAuthorReviewRow = {
   course_code: string;
   teacher_name: string;
   created_at: string;
+  package_contract: string | null;
 };
 
 function mapPublicAuthorReviews(
@@ -89,6 +94,7 @@ function mapPublicAuthorReviews(
   return rows.map((row) => {
     const rawName = row.course_name || "";
     const grade = publicGrade(row.grade);
+    const sourceLabel = sourceLabelForPackageContract(row.package_contract);
     return {
       id: row.id,
       course_id: row.course_id,
@@ -104,6 +110,7 @@ function mapPublicAuthorReviews(
       created_at: publicCreatedAt(row.created_at),
       author_public_code: publicCode,
       author_avatar_key: avatarKey,
+      ...(sourceLabel ? { source_label: sourceLabel } : {}),
     };
   });
 }
@@ -131,7 +138,7 @@ async function loadPublicProfile(
   );
   const listStmt = prepareListedReviews(
     `SELECT id,course_id,teacher_id,comment,comment_format,headline,grade,
-            course_name,course_code,teacher_name,created_at
+            course_name,course_code,teacher_name,created_at,package_contract
      FROM (${reviewsSql}) profile_reviews
      ORDER BY created_at DESC, id DESC
      LIMIT ${PROFILE_REVIEW_PAGE_SIZE}`,
@@ -176,7 +183,7 @@ async function loadPublicProfile(
     followable: Boolean(viewerId && !viewerIsSelf),
     viewer_followed: viewerFollowed,
     viewer_is_self: viewerIsSelf,
-    note: reserved ? "来自以前的学长学姐的评价" : null,
+    note: reserved ? RESERVED_PUBLIC_PROFILE_NOTE : null,
     review_count: Number.isFinite(reviewCount) ? reviewCount : 0,
     following_count: Number(counts?.following_count) || 0,
     follower_count: Number(counts?.follower_count) || 0,

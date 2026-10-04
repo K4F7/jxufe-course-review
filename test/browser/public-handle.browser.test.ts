@@ -38,7 +38,7 @@ test("reserved handle page shows 学长学姐 copy and follow plus course count"
         followable: false,
         viewer_followed: false,
         viewer_is_self: false,
-        note: "来自以前的学长学姐的评价",
+        note: "来自以前的学长学姐的评价，部分整理自 QQ 频道「江西财经大学」",
         review_count: 3,
         following_count: 0,
         follower_count: 0,
@@ -53,6 +53,9 @@ test("reserved handle page shows 学长学姐 copy and follow plus course count"
           created_at: "2024-01-01 00:00:00",
           author_public_code: 0,
           author_avatar_key: 0,
+          ...(index === 0
+            ? { source_label: "整理自 QQ 频道「江西财经大学」" }
+            : {}),
         })),
       };
     }
@@ -66,10 +69,17 @@ test("reserved handle page shows 学长学姐 copy and follow plus course count"
   const profileCard = page.locator('[aria-label="公开编号"]');
   const courseCount = (page.viewportSize()?.width ?? 1280) < 768 ? "3" : "3 门课程";
   await expect(profileCard.getByText(courseCount, { exact: true })).toBeVisible();
-  await expect(page.getByText("来自以前的学长学姐的评价").first()).toBeVisible();
   await expect(
-    profileCard.getByText("来自以前的学长学姐的评价"),
+    page.getByText("来自以前的学长学姐的评价，部分整理自 QQ 频道「江西财经大学」").first(),
+  ).toBeVisible();
+  await expect(
+    profileCard.getByText(
+      "来自以前的学长学姐的评价，部分整理自 QQ 频道「江西财经大学」",
+    ),
   ).toHaveCount(0);
+  await expect(
+    page.getByText("整理自 QQ 频道「江西财经大学」", { exact: true }),
+  ).toBeVisible();
   await expect(profileCard.getByText("50 门课程")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "关注" })).toBeVisible();
   await expect(
@@ -105,7 +115,7 @@ test("reserved handle page can follow when logged in", async ({ page }) => {
           followable: true,
           viewer_followed: followed,
           viewer_is_self: false,
-          note: "来自以前的学长学姐的评价",
+          note: "来自以前的学长学姐的评价，部分整理自 QQ 频道「江西财经大学」",
           review_count: 3,
           following_count: 0,
           follower_count: followed ? 1 : 0,

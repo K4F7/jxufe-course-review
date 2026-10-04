@@ -26,6 +26,11 @@ import {
   HistoricalBatchImportError,
   importV5HistoricalBatch,
 } from "../historical-batch-imports";
+import { historicalReviewPackage } from "../historical-review-packages";
+import {
+  HistoricalReviewPackageImportError,
+  importHistoricalReviewPackage,
+} from "../historical-review-package-import";
 import {
   applyProgramPlanImport,
   parseProgramPlanImportRecords,
@@ -38,6 +43,7 @@ import {
   baselineChunkPathSchema,
   baselinePathSchema,
   baselinePreviewQuerySchema,
+  historicalReviewPackageImportSchema,
   objectEnvelopeSchema,
   relationImportEnvelopeSchema,
 } from "./request-schemas";
@@ -195,6 +201,45 @@ importRoutes.post("/api/admin/historical-review-v5-imports", async (c) => {
     return historicalBatchFailure(c, error);
   }
 });
+importRoutes.post(
+  "/api/admin/historical-review-packages/:package/imports",
+  async (c) => {
+    const packageName = c.req.param("package");
+    if (!historicalReviewPackage(packageName))
+      return fail(c, "未知历史评价导入批次", 404);
+    try {
+      const parsed = historicalReviewPackageImportSchema.safeParse(
+        await c.req.json<unknown>(),
+      );
+      if (!parsed.success)
+        throw new HistoricalReviewPackageImportError(
+          "历史评价导入请求格式无效",
+          422,
+        );
+      const result = await importHistoricalReviewPackage(
+        c.env.DB,
+        packageName,
+        parsed.data,
+      );
+      if (result.outcome === "report")
+        return c.json(result.report, result.report.dryRun ? 200 : 422);
+      if (result.created > 0) {
+        markPublicCatalogCacheChanged(c);
+        for (const pair of result.touchedRelations)
+          await scheduleRelationSummaryRecompute(
+            c,
+            pair.courseId,
+            pair.teacherId,
+          );
+      }
+      return c.json(result.body, result.created > 0 ? 201 : 200);
+    } catch (error) {
+      if (error instanceof HistoricalReviewPackageImportError)
+        return fail(c, error.message, error.status);
+      throw error;
+    }
+  },
+);
 importRoutes.post("/api/admin/import/preview", (c) =>
   fail(
     c,

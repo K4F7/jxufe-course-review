@@ -179,6 +179,10 @@ export type PublicReview = {
   blocked?: boolean;
   /** 公开编号；无作者或历史/旧行为 0（匿名用户#000000）。 */
   author_public_code?: number | null;
+  /**
+   * 注册表中的历史评价来源。腾讯表格旧批次与普通任课评价不下发。
+   */
+  source_label?: string | null;
   /** 官方头像 0–4；#000000 固定为 0。 */
   author_avatar_key?: number | null;
   /** 该条评价下的公开回复数；仅当前评价（review:NNN）下发。 */
@@ -218,6 +222,8 @@ export type LatestReview = {
   created_at: string | null;
   author_public_code?: number | null;
   author_avatar_key?: number | null;
+  /** 注册表中的历史评价来源。腾讯表格旧批次不下发。 */
+  source_label?: string | null;
 };
 
 export type RelationSignalState = {

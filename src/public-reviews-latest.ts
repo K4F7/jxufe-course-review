@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { sourceLabelForPackageContract } from "./historical-review-packages";
 import {
   publicCourseCategory,
   publicCourseDisplayName,
@@ -128,7 +129,7 @@ const reviewCursorClause = (cursor: LatestCursor | null) => {
 };
 
 const latestColumns =
-  "id,course_id,teacher_id,comment,comment_format,headline,grade,course_name,course_code,teacher_name,created_at,author_public_code,author_avatar_key";
+  "id,course_id,teacher_id,comment,comment_format,headline,grade,course_name,course_code,teacher_name,created_at,author_public_code,author_avatar_key,package_contract";
 
 // UNION ALL ignores ORDER BY/LIMIT on a bare branch. Each branch is wrapped so
 // SQLite can apply the cursor, walk the branch index, and stop at LIMIT rows
@@ -146,7 +147,7 @@ export function buildLatestPublicReviewsQuery(
         SELECT 'historical:' || phr.id id, phr.course_id, phr.teacher_id, phr.comment,
           NULL comment_format, '' headline, NULL grade,
           c.name course_name, c.code course_code, t.name teacher_name,
-          phr.imported_at created_at, ${reservedAuthorSql}
+          phr.imported_at created_at, ${reservedAuthorSql}, phr.package_contract
         FROM public_historical_reviews phr
         JOIN courses c ON c.id=phr.course_id
         JOIN teachers t ON t.id=phr.teacher_id
@@ -160,7 +161,7 @@ export function buildLatestPublicReviewsQuery(
         SELECT 'review:' || r.id id, r.course_id, r.teacher_id, r.comment,
           r.comment_format, r.headline, r.grade,
           c.name course_name, c.code course_code, t.name teacher_name,
-          r.created_at, ${authoredReviewAuthorSql}
+          r.created_at, ${authoredReviewAuthorSql}, NULL AS package_contract
         FROM reviews r
         JOIN courses c ON c.id=r.course_id
         JOIN teachers t ON t.id=r.teacher_id
@@ -201,6 +202,7 @@ export async function handleLatestPublicReviews(c: Context) {
     created_at: string;
     author_public_code: number | null;
     author_avatar_key: number | null;
+    package_contract: string | null;
   }>;
   const hasMore = results.length > size;
   const rows = results.slice(0, size);
@@ -209,6 +211,7 @@ export async function handleLatestPublicReviews(c: Context) {
     items: rows.map((row) => {
       const rawName = row.course_name || "";
       const grade = publicGrade(row.grade);
+      const sourceLabel = sourceLabelForPackageContract(row.package_contract);
       return {
         id: row.id,
         course_id: row.course_id,
@@ -223,6 +226,7 @@ export async function handleLatestPublicReviews(c: Context) {
         category: publicCourseCategory(rawName, ""),
         created_at: publicCreatedAt(row.created_at),
         ...publicAuthorFields(row),
+        ...(sourceLabel ? { source_label: sourceLabel } : {}),
       };
     }),
     nextCursor:

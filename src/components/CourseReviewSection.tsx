@@ -55,6 +55,7 @@ import {
   useReviewRecognition,
 } from "./ReviewRecognitionControl";
 import { ReviewAuthor } from "./ReviewAuthor";
+import { ReviewSourceLabel } from "./ReviewSourceLabel";
 import { DetailErrorAlert } from "./DetailErrorAlert";
 import { DetailLoadingStatus } from "./DetailFeedback";
 import { ReviewAdminControls } from "./ReviewAdminControls";
@@ -220,6 +221,7 @@ const CourseReviewItem = memo(function CourseReviewItem({
               publicCode={review.author_public_code}
               avatarKey={review.author_avatar_key}
             />
+            <ReviewSourceLabel label={review.source_label} />
             <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
               {review.overall != null ? (
                 <StarsWithCaption
