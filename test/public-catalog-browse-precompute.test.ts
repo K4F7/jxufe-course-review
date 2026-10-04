@@ -2,7 +2,10 @@ import { env } from "cloudflare:test";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildPeSpecializationMapping } from "../src/lib/pe-specialization-mapping";
 import { publicRelationNameSortKey } from "../src/lib/public-course-presentation";
-import { columnRowInsertStatements } from "../src/public-catalog-browse-plan";
+import {
+  CATALOG_BROWSE_PROJECTION_ENABLED,
+  columnRowInsertStatements,
+} from "../src/public-catalog-browse-plan";
 import { rebuildPublicListProjection } from "../src/public-list-projection-plan";
 import { refreshPublicListPrecomputes } from "../src/public-list-precompute";
 import {
@@ -52,6 +55,8 @@ let consoleErrors: string[] = [];
 const originalConsoleError = console.error;
 
 beforeAll(async () => {
+  // #931: 开关关闭时下面整组依赖浏览表的用例被跳过，不必建夹具。
+  if (!CATALOG_BROWSE_PROJECTION_ENABLED) return;
   console.error = (...args: unknown[]) => {
     consoleErrors.push(args.map((part) => String(part)).join(" "));
     originalConsoleError(...args);
@@ -165,6 +170,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterEach(() => {
+  if (!CATALOG_BROWSE_PROJECTION_ENABLED) return;
   const leaked = consoleErrors.filter((line) =>
     line.includes("catalog_browse_fallback"),
   );
@@ -172,7 +178,8 @@ afterEach(() => {
   expect(leaked).toEqual([]);
 });
 
-describe("预计算公共目录浏览", () => {
+// #931: 开关关闭期间这些用例依赖浏览表重建，重新打开后再跑。
+describe.skipIf(!CATALOG_BROWSE_PROJECTION_ENABLED)("预计算公共目录浏览", () => {
   const courseSorts = ["name", "reviews"] as const;
   const relationSorts = ["name", "reviews", "rating"] as const;
   const filters: Array<{
@@ -563,6 +570,279 @@ describe("预计算公共目录浏览", () => {
     expect(Number(leaked?.n)).toBe(0);
   });
 });
+
+describe.skipIf(CATALOG_BROWSE_PROJECTION_ENABLED)("浏览预计算暂停 (#932)", () => {
+  it("开关关闭时重建不写浏览表，读取走旧路径且结果正确", async () => {
+    const stamp = `pause932-${Date.now()}`;
+    const department = `${stamp}院`;
+    const teacher = await env.DB.prepare(
+      "INSERT INTO teachers(source_teacher_label,name,department) VALUES(?,?,?)",
+    )
+      .bind(stamp, stamp, department)
+      .run();
+    const teacherId = Number(teacher.meta.last_row_id);
+    const course = await env.DB.prepare(
+      "INSERT INTO courses(code,name,category,department,scheme_key) VALUES(?,?,?,?,?)",
+    )
+      .bind(`${stamp}-C`, `${stamp}高等数学`, "general", department, "math")
+      .run();
+    const courseId = Number(course.meta.last_row_id);
+    await env.DB.prepare(
+      "INSERT INTO course_teachers(course_id,teacher_id) VALUES(?,?)",
+    )
+      .bind(courseId, teacherId)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO reviews(
+        course_id,teacher_id,category,overall,comment,term,status,
+        submitter_hash,scheme_key,scheme_version,scores,created_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+    )
+      .bind(
+        courseId,
+        teacherId,
+        "general",
+        5,
+        `${stamp}-评价正文足够长`,
+        "2026 春",
+        "approved",
+        `hash-${stamp}`,
+        "major",
+        2,
+        JSON.stringify(CURRENT_SCORES),
+        "2026-08-12 01:00:00",
+      )
+      .run();
+
+    await insertPausedBrowseSentinels();
+    const before = await browseTableCounts();
+    expect(before.names).toEqual([
+      "public_course_browse",
+      "public_course_browse_departments",
+      "public_course_browse_departments_staging",
+      "public_course_browse_staging",
+      "public_course_browse_teachers",
+      "public_course_browse_teachers_staging",
+      "public_course_browse_totals",
+      "public_course_browse_totals_staging",
+      "public_relation_browse",
+      "public_relation_browse_departments",
+      "public_relation_browse_departments_staging",
+      "public_relation_browse_staging",
+      "public_relation_browse_totals",
+      "public_relation_browse_totals_staging",
+    ]);
+    expect([...before.counts.values()].every((count) => count === 1)).toBe(true);
+
+    // ready 已经是 1 时，关闭开关的重建也不能把它清成 0。
+    await env.DB.prepare(
+      `UPDATE public_precompute_state
+       SET catalog_browse_ready=1,dirty=1,
+           refresh_token=NULL,refresh_lease_until=NULL
+       WHERE id=1`,
+    ).run();
+    const token = crypto.randomUUID();
+    const state = await env.DB.prepare(
+      `UPDATE public_precompute_state
+       SET dirty=1,refresh_token=?,refresh_lease_until=unixepoch()+60
+       WHERE id=1
+       RETURNING generation`,
+    )
+      .bind(token)
+      .first<{ generation: number }>();
+    await rebuildPublicListProjection({
+      db: env.DB,
+      generation: Number(state?.generation) || 0,
+      token,
+      renewLease: async () => {},
+    });
+
+    expect(await browseTableCounts()).toEqual(before);
+    await expectPausedBrowseSentinels();
+    const afterRebuild = await env.DB.prepare(
+      "SELECT catalog_browse_ready ready FROM public_precompute_state WHERE id=1",
+    ).first<{ ready: number }>();
+    expect(Number(afterRebuild?.ready)).toBe(1);
+
+    await env.DB.prepare(
+      `UPDATE public_precompute_state
+       SET catalog_browse_ready=1,dirty=0,
+           refresh_token=NULL,refresh_lease_until=NULL
+       WHERE id=1`,
+    ).run();
+    const listQuery = {
+      page: 1,
+      pageSize: 20,
+      q: "",
+      category: "math",
+      department,
+      teacherId,
+      sort: "reviews" as const,
+    };
+    const courses = await queryPublicCourses(env.DB, listQuery);
+    const legacyCourses = await queryPublicCoursesLegacy(env.DB, listQuery);
+    expect(courses).toEqual(legacyCourses);
+    expect(courses.total).toBe(1);
+    expect(courses.items.map((item) => item.id)).toEqual([courseId]);
+    expect(courses.items[0]?.review_count).toBe(1);
+
+    const relationsQuery = { ...listQuery, sort: "rating" as const };
+    const relations = await queryPublicCourseRelations(
+      env.DB,
+      relationsQuery,
+      null,
+    );
+    const legacyRelations = await queryPublicCourseRelationsLegacy(
+      env.DB,
+      relationsQuery,
+      null,
+    );
+    expect(relations).toEqual(legacyRelations);
+    expect(relations.total).toBe(1);
+    expect(relations.items[0]).toMatchObject({
+      course_id: courseId,
+      teacher_id: teacherId,
+      review_count: 1,
+      rating: 5,
+    });
+
+    await env.DB.prepare(
+      `UPDATE public_precompute_state
+       SET catalog_browse_ready=0,dirty=0,
+           refresh_token=NULL,refresh_lease_until=NULL
+       WHERE id=1`,
+    ).run();
+    expect(await queryPublicCourses(env.DB, listQuery)).toEqual(legacyCourses);
+    expect(
+      await queryPublicCourseRelations(env.DB, relationsQuery, null),
+    ).toEqual(legacyRelations);
+    const afterRead = await env.DB.prepare(
+      "SELECT catalog_browse_ready ready,dirty FROM public_precompute_state WHERE id=1",
+    ).first<{ ready: number; dirty: number }>();
+    expect(Number(afterRead?.ready)).toBe(0);
+    expect(Number(afterRead?.dirty)).toBe(0);
+    expect(await browseTableCounts()).toEqual(before);
+    await expectPausedBrowseSentinels();
+  });
+});
+
+const pausedBrowseSentinel = "pause932:sentinel";
+
+async function browseTableCounts() {
+  const listed = await env.DB.prepare(
+    `SELECT name FROM sqlite_master
+     WHERE type='table' AND name GLOB 'public_*browse*'
+     ORDER BY name`,
+  ).all<{ name: string }>();
+  const names = (listed.results ?? []).map((row) => row.name);
+  const counts = new Map<string, number>();
+  for (const name of names) {
+    const row = await env.DB.prepare(`SELECT COUNT(*) n FROM ${name}`).first<{
+      n: number;
+    }>();
+    counts.set(name, Number(row?.n) || 0);
+  }
+  return { names, counts };
+}
+
+async function insertPausedBrowseSentinels() {
+  for (const table of ["public_relation_browse", "public_relation_browse_staging"]) {
+    await env.DB.prepare(
+      `INSERT INTO ${table}(
+        public_id,code,name,category,department,teacher_id,teacher_name,
+        review_count,name_sort_key,rating_missing
+      ) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+    )
+      .bind(pausedBrowseSentinel, "P", "暂停", "general", "院", 1, "师", 0, "z", 1)
+      .run();
+  }
+  for (const table of [
+    "public_relation_browse_departments",
+    "public_relation_browse_departments_staging",
+    "public_course_browse_departments",
+    "public_course_browse_departments_staging",
+  ]) {
+    await env.DB.prepare(
+      `INSERT INTO ${table}(department, public_id) VALUES(?,?)`,
+    )
+      .bind("pause932", pausedBrowseSentinel)
+      .run();
+  }
+  for (const table of [
+    "public_relation_browse_totals",
+    "public_relation_browse_totals_staging",
+    "public_course_browse_totals",
+    "public_course_browse_totals_staging",
+  ]) {
+    await env.DB.prepare(`INSERT INTO ${table}(category, n) VALUES(?,?)`)
+      .bind("pause932", 0)
+      .run();
+  }
+  for (const table of ["public_course_browse", "public_course_browse_staging"]) {
+    await env.DB.prepare(
+      `INSERT INTO ${table}(
+        public_id,code,name,category,department,review_count,
+        sort_name,sort_code,sort_id_missing,sort_id,is_extra
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+    )
+      .bind(pausedBrowseSentinel, "P", "暂停", "general", "院", 0, "暂停", "P", 0, 0, 0)
+      .run();
+  }
+  for (const table of [
+    "public_course_browse_teachers",
+    "public_course_browse_teachers_staging",
+  ]) {
+    await env.DB.prepare(
+      `INSERT INTO ${table}(teacher_id, public_id) VALUES(?,?)`,
+    )
+      .bind(1, pausedBrowseSentinel)
+      .run();
+  }
+}
+
+async function expectPausedBrowseSentinels() {
+  for (const table of [
+    "public_relation_browse",
+    "public_relation_browse_staging",
+    "public_course_browse",
+    "public_course_browse_staging",
+  ]) {
+    const row = await env.DB.prepare(
+      `SELECT public_id FROM ${table} WHERE public_id=?`,
+    )
+      .bind(pausedBrowseSentinel)
+      .first<{ public_id: string }>();
+    expect(row?.public_id, table).toBe(pausedBrowseSentinel);
+  }
+  for (const table of [
+    "public_relation_browse_departments",
+    "public_relation_browse_departments_staging",
+    "public_course_browse_departments",
+    "public_course_browse_departments_staging",
+    "public_course_browse_teachers",
+    "public_course_browse_teachers_staging",
+  ]) {
+    const row = await env.DB.prepare(
+      `SELECT public_id FROM ${table} WHERE public_id=?`,
+    )
+      .bind(pausedBrowseSentinel)
+      .first<{ public_id: string }>();
+    expect(row?.public_id, table).toBe(pausedBrowseSentinel);
+  }
+  for (const table of [
+    "public_relation_browse_totals",
+    "public_relation_browse_totals_staging",
+    "public_course_browse_totals",
+    "public_course_browse_totals_staging",
+  ]) {
+    const row = await env.DB.prepare(
+      `SELECT category FROM ${table} WHERE category=?`,
+    )
+      .bind("pause932")
+      .first<{ category: string }>();
+    expect(row?.category, table).toBe("pause932");
+  }
+}
 
 async function expectCourseParity(
   filter: { category: string; department: string; teacherId: number | null },

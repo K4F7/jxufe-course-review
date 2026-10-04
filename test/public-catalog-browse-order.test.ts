@@ -21,6 +21,7 @@ import {
   publicRelationIdentity,
 } from "../src/lib/public-pe-course-projection";
 import { publicPeMappedSourceRelationExcludeSql } from "../src/lib/public-pe-relation-projection";
+import { CATALOG_BROWSE_PROJECTION_ENABLED } from "../src/public-catalog-browse-plan";
 import { ensurePublicListPrecomputes } from "../src/public-list-precompute";
 import { publicCourseCanonicalJoin } from "../src/public-list-projection-plan";
 import {
@@ -628,7 +629,8 @@ beforeAll(async () => {
   const ready = await env.DB.prepare(
     "SELECT catalog_browse_ready ready FROM public_precompute_state WHERE id=1",
   ).first<{ ready: number }>();
-  expect(Number(ready?.ready)).toBe(1);
+  // #931: 开关关闭时不发布浏览表，ready 保持 0，下面的全序走 #929 旧查询。
+  expect(Number(ready?.ready)).toBe(CATALOG_BROWSE_PROJECTION_ENABLED ? 1 : 0);
   filters.push(
     { category: "", department, teacherId: null },
     { category: "sports", department, teacherId: null },
