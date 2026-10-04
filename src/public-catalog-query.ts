@@ -248,11 +248,15 @@ function extraPublicId(item: { public_id?: string }): string {
   return item.public_id ?? "";
 }
 
-function extraSortId(item: PublicCourseListItem): number {
-  return item.id == null ? 0 : Number(item.id);
+/**
+ * Mapped PE public rows have a null course id. They sort after every real id.
+ * SQL binds NULL and `publicCourseBrowseNameBeforeSql` treats that the same way.
+ */
+function courseExtraSortId(item: { id?: number | null }): number | null {
+  return item.id == null ? null : Number(item.id);
 }
 
-function byNameCodeId(
+export function comparePublicCourseBrowseName(
   a: { id?: unknown; code?: unknown; name?: unknown; public_id?: unknown },
   b: { id?: unknown; code?: unknown; name?: unknown; public_id?: unknown },
 ) {
@@ -265,7 +269,34 @@ function byNameCodeId(
   const idA = a.id == null ? Number.POSITIVE_INFINITY : Number(a.id);
   const idB = b.id == null ? Number.POSITIVE_INFINITY : Number(b.id);
   if (idA !== idB) return idA - idB;
-  return String(a.public_id ?? "").localeCompare(String(b.public_id ?? ""));
+  const publicA = String(a.public_id ?? "");
+  const publicB = String(b.public_id ?? "");
+  if (publicA !== publicB) return publicA < publicB ? -1 : 1;
+  return 0;
+}
+
+/** `alias` is the courses table. Real rows only; null ids never appear here. */
+export function publicCourseBrowseNameOrderSql(alias = "c"): string {
+  return `(${publicCourseDisplayNameSql(alias)}),${alias}.code,${alias}.id`;
+}
+
+/**
+ * Reals strictly before one merged extra. `extras.sort_id` NULL means the extra
+ * id is null and therefore after every real id with the same 展示名 and 课号.
+ */
+export function publicCourseBrowseNameBeforeSql(displayNameSql: string): string {
+  const name = `(${displayNameSql})`;
+  return `(${name} < extras.sort_name
+    OR (${name} = extras.sort_name AND c.code < extras.sort_code)
+    OR (${name} = extras.sort_name AND c.code = extras.sort_code
+      AND (extras.sort_id IS NULL OR c.id < extras.sort_id)))`;
+}
+
+function publicCourseBrowseReviewsBeforeSql(displayNameSql: string): string {
+  const nameBefore = publicCourseBrowseNameBeforeSql(displayNameSql);
+  return `(COALESCE(course_review_counts.review_count,0) > extras.review_count
+    OR (COALESCE(course_review_counts.review_count,0) = extras.review_count
+      AND ${nameBefore}))`;
 }
 
 function byNameCodeTeacher(a: RelationRow, b: RelationRow) {
@@ -286,20 +317,12 @@ function byNameCodeTeacher(a: RelationRow, b: RelationRow) {
   return keyA < keyB ? -1 : keyA > keyB ? 1 : 0;
 }
 
-function byRelationBrowseTiebreak(a: RelationRow, b: RelationRow) {
-  const nameA = String(a.name ?? "");
-  const nameB = String(b.name ?? "");
-  if (nameA !== nameB) return nameA < nameB ? -1 : 1;
-  const codeA = String(a.code ?? "");
-  const codeB = String(b.code ?? "");
-  if (codeA !== codeB) return codeA < codeB ? -1 : 1;
-  const courseA = a.course_id == null ? 0 : Number(a.course_id);
-  const courseB = b.course_id == null ? 0 : Number(b.course_id);
-  if (courseA !== courseB) return courseA - courseB;
-  const teacherA = String(a.teacher_name ?? "");
-  const teacherB = String(b.teacher_name ?? "");
-  if (teacherA !== teacherB) return teacherA < teacherB ? -1 : 1;
-  return (a.teacher_id ?? 0) - (b.teacher_id ?? 0);
+function relationReviewsOrderSql(nameSortSql: string): string {
+  return `COALESCE(rel_counts.review_count,0) DESC,${nameSortSql}`;
+}
+
+function relationRatingOrderSql(nameSortSql: string): string {
+  return `(rel_rating.rating IS NULL),rel_rating.rating DESC,${relationReviewsOrderSql(nameSortSql)}`;
 }
 
 function byRelationRating(a: RelationRow, b: RelationRow) {
@@ -310,12 +333,12 @@ function byRelationRating(a: RelationRow, b: RelationRow) {
     return b.rating - a.rating;
   }
   if (a.review_count !== b.review_count) return b.review_count - a.review_count;
-  return byRelationBrowseTiebreak(a, b);
+  return byNameCodeTeacher(a, b);
 }
 
 function byRelationReviews(a: RelationRow, b: RelationRow) {
   if (a.review_count !== b.review_count) return b.review_count - a.review_count;
-  return byRelationBrowseTiebreak(a, b);
+  return byNameCodeTeacher(a, b);
 }
 
 /** First 10 pages at the default pageSize; deeper pages keep the generic merge. */
@@ -379,10 +402,11 @@ async function loadRelationBrowseFromAggregate(
       JOIN teachers t ON t.id=rel_counts.teacher_id
       LEFT JOIN public_relation_ratings rel_rating
         ON rel_rating.course_id=c.id AND rel_rating.teacher_id=t.id`;
+  const nameSortSql = publicRelationNameSortSql("c", "t");
   const orderBy =
     input.sort === "rating"
-      ? "rel_rating.rating DESC,rel_rating.course_id,rel_rating.teacher_id"
-      : "rel_counts.review_count DESC,rel_counts.course_id,rel_counts.teacher_id";
+      ? relationRatingOrderSql(nameSortSql)
+      : relationReviewsOrderSql(nameSortSql);
   const { results } = await db
     .prepare(
       `SELECT c.id course_id,c.code,c.name,c.category,c.department,
@@ -562,10 +586,14 @@ export async function queryPublicCourses(
     "course",
     args.length,
   );
-  const relevanceOrder = exactCodeMatched
-    ? "review_count DESC,c.name,c.code,c.id"
-    : `${sharedRanking.sql},review_count DESC,c.name,c.code,c.id`;
-  const searchRankArgs = exactCodeMatched ? [] : sharedRanking.args;
+  const courseNameOrderSql = publicCourseBrowseNameOrderSql("c");
+  const courseReviewsOrderSql = `COALESCE(course_review_counts.review_count,0) DESC,${courseNameOrderSql}`;
+  const useSearchRank =
+    sort !== "name" && !exactCodeMatched && searchTerms.length > 0;
+  const relevanceOrder = useSearchRank
+    ? `${sharedRanking.sql},${courseReviewsOrderSql}`
+    : courseReviewsOrderSql;
+  const searchRankArgs = useSearchRank ? sharedRanking.args : [];
   const mergeName = extrasAllUnsorted.length > 0 && sort === "name";
   const mergeReviews =
     extrasAllUnsorted.length > 0 &&
@@ -581,9 +609,10 @@ export async function queryPublicCourses(
       db,
       extras: extrasAllUnsorted,
       compare: mergeName
-        ? byNameCodeId
+        ? comparePublicCourseBrowseName
         : (left, right) =>
-            right.review_count - left.review_count || byNameCodeId(left, right),
+            right.review_count - left.review_count ||
+            comparePublicCourseBrowseName(left, right),
       extraKey: extraPublicId,
       extraColumnSql: "extra_key,sort_name,sort_code,sort_id,review_count",
       extraRowSql: "(?,?,?,?,?)",
@@ -591,7 +620,7 @@ export async function queryPublicCourses(
         item.public_id,
         item.name,
         item.code,
-        extraSortId(item),
+        courseExtraSortId(item),
         item.review_count,
       ],
       selectCountSql: "COUNT(DISTINCT c.id)",
@@ -599,14 +628,8 @@ export async function queryPublicCourses(
       extraJoins: mergeReviews ? reviewCountJoin : "",
       where,
       beforePredicate: mergeName
-        ? `(c.name < extras.sort_name
-             OR (c.name = extras.sort_name AND c.code < extras.sort_code)
-             OR (c.name = extras.sort_name AND c.code = extras.sort_code AND c.id < extras.sort_id))`
-        : `(COALESCE(course_review_counts.review_count,0) > extras.review_count
-             OR (COALESCE(course_review_counts.review_count,0) = extras.review_count
-               AND (c.name < extras.sort_name
-                 OR (c.name = extras.sort_name AND c.code < extras.sort_code)
-                 OR (c.name = extras.sort_name AND c.code = extras.sort_code AND c.id < extras.sort_id))))`,
+        ? publicCourseBrowseNameBeforeSql(displayNameSql)
+        : publicCourseBrowseReviewsBeforeSql(displayNameSql),
       args,
       start: realOffset,
       size,
@@ -633,12 +656,12 @@ export async function queryPublicCourses(
       LEFT JOIN (SELECT course_id,SUM(review_count) review_count FROM public_review_counts GROUP BY course_id) course_review_counts ON course_review_counts.course_id=c.id
      WHERE ${where}
      GROUP BY c.id
-     ORDER BY ${sort === "name" ? "c.name,c.code,c.id" : relevanceOrder}
+     ORDER BY ${sort === "name" ? courseNameOrderSql : relevanceOrder}
      LIMIT ? OFFSET ?`,
           )
           .bind(
             ...args,
-            ...(sort === "name" || exactCodeMatched ? [] : searchRankArgs),
+            ...searchRankArgs,
             realLimit + 1,
             realOffset,
           )
@@ -661,13 +684,13 @@ export async function queryPublicCourses(
       );
   const totalCount = realTotal + extrasAll.length;
   const items = mergeName
-    ? [...listed, ...pageExtras].sort(byNameCodeId).slice(0, size)
+    ? [...listed, ...pageExtras].sort(comparePublicCourseBrowseName).slice(0, size)
     : mergeReviews
       ? [...listed, ...pageExtras]
           .sort(
             (left, right) =>
               right.review_count - left.review_count ||
-              byNameCodeId(left, right),
+              comparePublicCourseBrowseName(left, right),
           )
           .slice(0, size)
     : [...listed, ...extras].slice(0, size);
@@ -739,14 +762,18 @@ export async function queryPublicCourseRelations(
     "relation",
     args.length,
   );
-  const relevanceOrder = `${sharedRanking.sql},review_count DESC,${nameSortSql}`;
-  const searchRankArgs = sharedRanking.args;
+  const reviewsOrder = relationReviewsOrderSql(nameSortSql);
+  const ratingOrder = relationRatingOrderSql(nameSortSql);
+  const useSearchRank = sort !== "name" && sort !== "rating" && searchTerms.length > 0;
   const orderBy =
     sort === "name"
       ? nameSortSql
       : sort === "rating"
-        ? `(rel_rating.rating IS NULL),rel_rating.rating DESC,review_count DESC,${nameSortSql}`
-        : relevanceOrder;
+        ? ratingOrder
+        : useSearchRank
+          ? `${sharedRanking.sql},${reviewsOrder}`
+          : reviewsOrder;
+  const searchRankArgs = useSearchRank ? sharedRanking.args : [];
   const extrasAllUnsorted =
     query.category && query.category !== "sports"
       ? []
@@ -781,18 +808,36 @@ export async function queryPublicCourseRelations(
           offset: extrasTotal === 0 ? start : 0,
         });
         const listed = fastRows.map((row) => withPublicRelationNames(row));
-        const merged =
-          extrasTotal === 0
-            ? listed
-            : [...listed, ...extrasAllUnsorted].sort(
-                sort === "rating" ? byRelationRating : byRelationReviews,
-              );
-        const items =
-          extrasTotal === 0
-            ? listed.slice(0, size)
-            : merged.slice(start, start + size);
-        const pageComplete =
-          items.length === size || start + items.length >= totalCount;
+        const compare = sort === "rating" ? byRelationRating : byRelationReviews;
+        // Aggregate rows are only the scored prefix. Zero-count reviews and
+        // unrated ratings are absent, so a full merged page is returned only
+        // when every missing real sorts strictly after that page.
+        let items: RelationRow[];
+        let pageComplete: boolean;
+        if (extrasTotal === 0) {
+          items = listed.slice(0, size);
+          pageComplete =
+            items.length === size || start + items.length >= totalCount;
+        } else {
+          const aggregateExhausted = fastRows.length < take;
+          const merged = [...listed, ...extrasAllUnsorted].sort(compare);
+          items = merged.slice(start, start + size);
+          const coversAll = listed.length + extrasTotal >= totalCount;
+          const last = items[items.length - 1];
+          const boundary = listed[listed.length - 1];
+          const scoredPrefix =
+            aggregateExhausted &&
+            last != null &&
+            (sort === "rating" ? last.rating != null : last.review_count > 0);
+          const beforeUnfetched =
+            !aggregateExhausted &&
+            last != null &&
+            boundary != null &&
+            compare(last, boundary) < 0;
+          pageComplete =
+            coversAll ||
+            (items.length === size && (scoredPrefix || beforeUnfetched));
+        }
         if (pageComplete) {
           return {
             items: await attachRelationProjection(db, items, viewerUserId),
@@ -820,8 +865,6 @@ export async function queryPublicCourseRelations(
         : searchTerms.length === 0
           ? "reviews"
           : null;
-  const queryOrderBy =
-    mergeKind === "reviews" ? `review_count DESC,${nameSortSql}` : orderBy;
   let extrasAll = extrasAllUnsorted;
   let pageExtras: RelationRow[] = [];
   let realOffset = start;
@@ -911,17 +954,10 @@ export async function queryPublicCourseRelations(
       ${relationFrom}
       ${ratingJoins}
      WHERE ${where}
-     ORDER BY ${queryOrderBy}
+     ORDER BY ${orderBy}
      LIMIT ? OFFSET ?`,
           )
-          .bind(
-            ...args,
-            ...(mergeKind === "reviews" || sort === "name" || sort === "rating"
-              ? []
-              : searchRankArgs),
-            realLimit + 1,
-            realOffset,
-          )
+          .bind(...args, ...searchRankArgs, realLimit + 1, realOffset)
           .all(),
     canUseRelationBrowseFastPath(query, searchTerms)
       ? loadPrecomputedRelationTotal(db, query.category).then(
