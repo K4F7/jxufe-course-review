@@ -32,6 +32,7 @@ import {
   matchPublicCatalogCache,
   putPublicCatalogCache,
   setPublicCatalogCacheHeaders,
+  shouldPutPublicCatalogCache,
   shouldUsePublicCatalogCacheApi,
 } from "../lib/public-catalog-cache";
 import {
@@ -134,7 +135,33 @@ function publicPrecomputeReadOptions(
   return {
     mode: "stale",
     waitUntil: (promise) => c.executionCtx.waitUntil(promise),
+    onStaleProjection: () => {
+      c.set("publicCatalogProjectionStale", true);
+    },
   };
+}
+
+function setPublicListCacheHeaders(c: AppContext) {
+  setPublicCatalogCacheHeaders(
+    c,
+    "list",
+    c.get("publicCatalogProjectionStale") === true,
+  );
+}
+
+function storePublicListResponse(
+  c: AppContext,
+  response: Response,
+  queryMs: number,
+) {
+  if (
+    !shouldPutPublicCatalogCache(
+      queryMs,
+      c.get("publicCatalogProjectionStale") === true,
+    )
+  )
+    return;
+  c.executionCtx.waitUntil(putPublicCatalogCache(c.req.url, response.clone()));
 }
 
 const withCourseReviewScheme = <
@@ -541,7 +568,7 @@ publicCatalogRoutes.get("/api/search/candidates", async (c) => {
     : 200;
   const ftsQuery = buildCatalogCandidateFtsQuery(query);
   if (!ftsQuery) {
-    if (cacheable) setPublicCatalogCacheHeaders(c, "list");
+    if (cacheable) setPublicListCacheHeaders(c);
     return c.json({ items: [], meta: { rows_read: 0, candidate_count: 0 } });
   }
   if (kind === "course") {
@@ -567,7 +594,7 @@ publicCatalogRoutes.get("/api/search/candidates", async (c) => {
       .bind(ftsQuery, limit)
       .all();
     const rows = (result.results || []) as Array<Record<string, unknown>>;
-    if (cacheable) setPublicCatalogCacheHeaders(c, "list");
+    if (cacheable) setPublicListCacheHeaders(c);
     return c.json({
       items: rows.map((row) => ({
         id: Number(row.id),
@@ -600,7 +627,7 @@ publicCatalogRoutes.get("/api/search/candidates", async (c) => {
     .bind(ftsQuery, limit)
     .all();
   const rows = (result.results || []) as Array<Record<string, unknown>>;
-  if (cacheable) setPublicCatalogCacheHeaders(c, "list");
+  if (cacheable) setPublicListCacheHeaders(c);
   return c.json({
     items: rows.map((row) => ({
       id: Number(row.id),
@@ -658,11 +685,9 @@ publicCatalogRoutes.get("/api/courses", async (c) => {
     );
     const queryMs = performance.now() - queryStarted;
     markServerTiming(c, "query", queryMs);
-    if (cacheable) setPublicCatalogCacheHeaders(c, "list");
+    if (cacheable) setPublicListCacheHeaders(c);
     const response = c.json(result);
-    if (useCacheApi && queryMs < 2000) {
-      c.executionCtx.waitUntil(putPublicCatalogCache(c.req.url, response.clone()));
-    }
+    if (useCacheApi) storePublicListResponse(c, response, queryMs);
     return response;
   }
   // 排序：默认投稿数优先（含搜索相关度），sort=name 按课名（Issue #203）。
@@ -678,11 +703,9 @@ publicCatalogRoutes.get("/api/courses", async (c) => {
   );
   const queryMs = performance.now() - queryStarted;
   markServerTiming(c, "query", queryMs);
-  if (cacheable) setPublicCatalogCacheHeaders(c, "list");
+  if (cacheable) setPublicListCacheHeaders(c);
   const response = c.json(result);
-  if (useCacheApi && queryMs < 2000) {
-    c.executionCtx.waitUntil(putPublicCatalogCache(c.req.url, response.clone()));
-  }
+  if (useCacheApi) storePublicListResponse(c, response, queryMs);
   return response;
 });
 publicCatalogRoutes.get("/api/teachers", async (c) => {
@@ -749,7 +772,7 @@ publicCatalogRoutes.get("/api/teachers", async (c) => {
     teacherCount,
   );
   const totalCount = pageRows.total;
-  if (cacheable) setPublicCatalogCacheHeaders(c, "list");
+  if (cacheable) setPublicListCacheHeaders(c);
   return c.json({
     items: pageRows.items.map((row: Record<string, unknown>) => {
       const teacher = toPublicTeacher(row);
@@ -986,7 +1009,7 @@ publicCatalogRoutes.get("/api/courses/options", async (c) => {
     optionCount,
   );
   const totalCount = pageRows.total;
-  if (cacheable) setPublicCatalogCacheHeaders(c, "list");
+  if (cacheable) setPublicListCacheHeaders(c);
   return c.json({
     items: pageRows.items.map((row) => withPublicCourseOption(row)),
     page,
@@ -1007,7 +1030,7 @@ publicCatalogRoutes.get("/api/courses/departments", async (c) => {
        AND trim(COALESCE(c.department,''))<>''
      ORDER BY trim(c.department)`,
   ).all<{ department: string }>();
-  if (cacheable) setPublicCatalogCacheHeaders(c, "list");
+  if (cacheable) setPublicListCacheHeaders(c);
   return c.json({ items: results.map((row) => row.department) });
 });
 publicCatalogRoutes.get("/api/courses/:id", async (c) => {

@@ -1,9 +1,11 @@
-import { SELF } from "cloudflare:test";
+import { SELF, env } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
+import app from "../src/index";
 import {
   DEFAULT_API_CACHE_CONTROL,
   PUBLIC_CATALOG_CACHE_CONTROL,
   PUBLIC_CATALOG_CACHE_TAG,
+  PUBLIC_CATALOG_STALE_CACHE_CONTROL,
   PUBLIC_CONFIG_CACHE_CONTROL,
   PUBLIC_CONFIG_CACHE_TAG,
   PUBLIC_DETAIL_CACHE_CONTROL,
@@ -11,10 +13,13 @@ import {
   purgePublicCatalogCache,
   isPublicCourseListCacheableRequest,
   matchPublicCatalogCache,
+  publicCatalogCacheKey,
   putPublicCatalogCache,
   setPublicCatalogCacheHeaders,
+  shouldPutPublicCatalogCache,
   shouldUsePublicCatalogCacheApi,
 } from "../src/lib/public-catalog-cache";
+import { refreshPublicListPrecomputes } from "../src/public-list-precompute";
 
 const origin = "https://example.com";
 
@@ -138,6 +143,19 @@ describe("public catalog cache headers", () => {
 });
 
 describe("public catalog cache helpers", () => {
+  it("keeps list s-maxage at 3600 and detail/config at 60", () => {
+    expect(PUBLIC_CATALOG_CACHE_CONTROL).toBe(
+      "public, max-age=0, s-maxage=3600, stale-while-revalidate=300",
+    );
+    expect(PUBLIC_DETAIL_CACHE_CONTROL).toBe(
+      "public, max-age=0, s-maxage=60, stale-while-revalidate=300",
+    );
+    expect(PUBLIC_CONFIG_CACHE_CONTROL).toBe(
+      "public, max-age=0, s-maxage=60, stale-while-revalidate=300",
+    );
+    expect(PUBLIC_CATALOG_STALE_CACHE_CONTROL).toBe("no-store");
+  });
+
   it("sets the public catalog Cache-Control and Cache-Tag", () => {
     const headers = new Map<string, string>();
     setPublicCatalogCacheHeaders({
@@ -145,6 +163,26 @@ describe("public catalog cache helpers", () => {
     });
     expect(headers.get("Cache-Control")).toBe(PUBLIC_CATALOG_CACHE_CONTROL);
     expect(headers.get("Cache-Tag")).toBe(PUBLIC_CATALOG_CACHE_TAG);
+  });
+
+  it("does not share-cache a list response read from a dirty projection", () => {
+    const headers = new Map<string, string>();
+    setPublicCatalogCacheHeaders(
+      { header: (name, value) => headers.set(name, value) },
+      "list",
+      true,
+    );
+    expect(headers.get("Cache-Control")).toBe(PUBLIC_CATALOG_STALE_CACHE_CONTROL);
+    expect(headers.get("Cache-Tag")).toBe(PUBLIC_CATALOG_CACHE_TAG);
+    setPublicCatalogCacheHeaders(
+      { header: (name, value) => headers.set(name, value) },
+      "detail",
+      true,
+    );
+    expect(headers.get("Cache-Control")).toBe(PUBLIC_DETAIL_CACHE_CONTROL);
+    expect(shouldPutPublicCatalogCache(10, true)).toBe(false);
+    expect(shouldPutPublicCatalogCache(10, false)).toBe(true);
+    expect(shouldPutPublicCatalogCache(2000, false)).toBe(false);
   });
 
   it("allows only the voter marker for anonymous course-list caching", () => {
@@ -201,5 +239,79 @@ describe("public catalog cache helpers", () => {
       false,
     );
     expect(shouldUsePublicCatalogCacheApi({})).toBe(true);
+  });
+});
+
+describe("public list cache when the published projection is dirty", () => {
+  const productionEnv = new Proxy(env, {
+    get(target, property, receiver) {
+      if (property === "ORDINARY_USER_TEST_AUTH_SECRET") return undefined;
+      return Reflect.get(target, property, receiver);
+    },
+  });
+
+  async function fetchList(url: string) {
+    const tasks: Promise<unknown>[] = [];
+    const response = await app.fetch(
+      new Request(url),
+      productionEnv,
+      {
+        waitUntil(promise: Promise<unknown>) {
+          tasks.push(promise);
+        },
+        passThroughOnException() {},
+      } as ExecutionContext,
+    );
+    return {
+      response,
+      done: () => Promise.all(tasks),
+    };
+  }
+
+  async function deleteCached(url: string) {
+    await (caches as CacheStorage & { default: Cache }).default.delete(
+      publicCatalogCacheKey(url),
+    );
+  }
+
+  it("stores a clean list response for s-maxage=3600 and skips a stale one", async () => {
+    const freshUrl = `${origin}/api/courses?pageSize=1&q=issue915-fresh`;
+    const staleUrl = `${origin}/api/courses?pageSize=1&q=issue915-stale`;
+    await refreshPublicListPrecomputes(env.DB);
+    try {
+      const fresh = await fetchList(freshUrl);
+      expect(fresh.response.status).toBe(200);
+      expect(fresh.response.headers.get("Cache-Control")).toBe(
+        PUBLIC_CATALOG_CACHE_CONTROL,
+      );
+      expect(fresh.response.headers.get("Cache-Tag")).toBe(PUBLIC_CATALOG_CACHE_TAG);
+      await fresh.done();
+      const stored = await matchPublicCatalogCache(freshUrl);
+      expect(stored?.headers.get("Cache-Control")).toBe(PUBLIC_CATALOG_CACHE_CONTROL);
+      expect(await stored?.json()).toEqual(await fresh.response.clone().json());
+
+      await env.DB.prepare(
+        `UPDATE public_precompute_state
+         SET dirty=1,refresh_token=NULL,refresh_lease_until=NULL
+         WHERE id=1 AND published_generation>=0`,
+      ).run();
+      const stale = await fetchList(staleUrl);
+      expect(stale.response.status).toBe(200);
+      expect(stale.response.headers.get("Cache-Control")).toBe(
+        PUBLIC_CATALOG_STALE_CACHE_CONTROL,
+      );
+      expect(stale.response.headers.get("Cache-Tag")).toBe(PUBLIC_CATALOG_CACHE_TAG);
+      await stale.done();
+      expect(await matchPublicCatalogCache(staleUrl)).toBeUndefined();
+    } finally {
+      await deleteCached(freshUrl);
+      await deleteCached(staleUrl);
+      await env.DB.prepare(
+        `UPDATE public_precompute_state
+         SET dirty=1,refresh_token=NULL,refresh_lease_until=NULL
+         WHERE id=1`,
+      ).run();
+      await refreshPublicListPrecomputes(env.DB);
+    }
   });
 });

@@ -1,10 +1,12 @@
 import { SELF, env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import app from "../src/index";
 import {
   hmacHex,
   ordinaryUserTestHeaders,
 } from "../src/ordinary-user-authentication";
 import { ORDINARY_USER_CSRF_COOKIE } from "../src/ordinary-user-write-authorization";
+import { PUBLIC_CATALOG_CACHE_TAG } from "../src/lib/public-catalog-cache";
 import { adminAuth } from "./admin-session";
 
 const origin = "https://example.com";
@@ -132,6 +134,33 @@ describe("ordinary user account deletion", () => {
       .bind(reviewId)
       .first<{ status: string }>();
     expect(review?.status).toBe("approved");
+  });
+
+  it("purges the public list tag when deletion removes relation signals", async () => {
+    const user = await authedUser("account-delete-cache-user");
+    await env.DB.prepare(
+      "INSERT INTO relation_follows(user_id,course_id,teacher_id) VALUES(?,1,1)",
+    )
+      .bind(user.stableUserId)
+      .run();
+    const purge = vi.fn().mockResolvedValue(undefined);
+    const response = await app.fetch(
+      new Request(deletionPath, {
+        method: "POST",
+        headers: writeHeaders(user),
+        body: JSON.stringify({ confirm: "DELETE" }),
+      }),
+      env,
+      {
+        waitUntil() {},
+        passThroughOnException() {},
+        cache: { purge },
+      } as ExecutionContext,
+    );
+    expect(response.status).toBe(200);
+    expect(purge).toHaveBeenCalledWith({
+      tags: expect.arrayContaining([PUBLIC_CATALOG_CACHE_TAG]),
+    });
   });
 
   it("exposes a pending_deletion session with CSRF and no public identity", async () => {
