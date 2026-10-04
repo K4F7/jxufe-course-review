@@ -349,10 +349,11 @@ const RELATION_REVIEW_COUNT_BROWSE_INDEX =
 const RELATION_RATING_BROWSE_INDEX = "idx_public_relation_ratings_rating";
 
 /**
- * `indexed` pins the sort-key index. The page query leaves the plan free so
- * `review_count >= ?` / `rating >= ?` can range-scan; the threshold probe must
- * walk that index. Category filters otherwise start from courses or
- * `is_public_sports` and sort every joined row.
+ * `indexed` pins the sort-key index. Only the unfiltered reviews threshold
+ * probe sets it. The page query leaves the plan free so `review_count >= ?`
+ * can range-scan. A category filter must not pin the index: `is_public_sports`
+ * and `scheme_key` are selective, and walking review_count / rating order
+ * reads almost every aggregate row.
  */
 export function relationBrowseAggregateFromSql(
   sort: PublicRelationListSort,
@@ -411,6 +412,19 @@ function canUseRelationBrowseFastPath(
   );
 }
 
+/**
+ * Pin review_count order only for the dense unfiltered reviews browse.
+ * Category filters (sports especially) are selective, so INDEXED BY scans
+ * nearly the whole aggregate before the rank is filled. Rating lists already
+ * stop on the rating index; the extra probe only adds reads. Both fall back
+ * to the #927 aggregate query and let the planner choose.
+ */
+export function relationBrowseUsesIndexedThreshold(
+  query: Pick<PublicRelationListQuery, "category" | "sort">,
+): boolean {
+  return query.category.trim() === "" && query.sort === "reviews";
+}
+
 async function loadPrecomputedRelationTotal(
   db: D1Database,
   category: string,
@@ -464,6 +478,7 @@ async function loadRelationBrowseFromAggregate(
     args: unknown[];
     limit: number;
     offset: number;
+    indexedThreshold: boolean;
   },
 ): Promise<RelationRow[]> {
   const fromSql = relationBrowseAggregateFromSql(input.sort);
@@ -472,7 +487,9 @@ async function loadRelationBrowseFromAggregate(
     input.sort === "rating"
       ? relationRatingOrderSql(nameSortSql)
       : relationReviewsOrderSql(nameSortSql);
-  const threshold = await loadRelationBrowseThreshold(db, input);
+  const threshold = input.indexedThreshold
+    ? await loadRelationBrowseThreshold(db, input)
+    : null;
   const thresholdSql =
     threshold == null
       ? ""
@@ -881,6 +898,7 @@ export async function queryPublicCourseRelations(
           args,
           limit: take,
           offset: extrasTotal === 0 ? start : 0,
+          indexedThreshold: relationBrowseUsesIndexedThreshold(query),
         });
         const listed = fastRows.map((row) => withPublicRelationNames(row));
         const compare = sort === "rating" ? byRelationRating : byRelationReviews;

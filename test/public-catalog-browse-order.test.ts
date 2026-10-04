@@ -30,6 +30,7 @@ import {
   queryPublicCourses,
   relationBrowseAggregateFromSql,
   relationBrowseThresholdProbeSql,
+  relationBrowseUsesIndexedThreshold,
   type PublicCatalogPage,
   type PublicCourseListItem,
   type PublicCourseListSort,
@@ -973,12 +974,6 @@ describe("公共目录浏览全序", () => {
       teacherId: null,
     });
     const sportsWhere = `${publicCourseVisibleSql("c")} AND ${publicPeMappedSourceRelationExcludeSql("c", "ct")} AND ${sportsScope.sql}`;
-    const mathScope = publicCatalogListScope({
-      category: "math",
-      department: "",
-      teacherId: null,
-    });
-    const mathWhere = `${publicCourseVisibleSql("c")} AND ${publicPeMappedSourceRelationExcludeSql("c", "ct")} AND ${mathScope.sql}`;
 
     const assertIndexProbe = async (
       sort: "reviews" | "rating",
@@ -997,9 +992,41 @@ describe("公共目录浏览全序", () => {
     };
     await assertIndexProbe("reviews", fastWhere, scope.args, "idx_public_review_counts_review_count");
     await assertIndexProbe("rating", fastWhere, scope.args, "idx_public_relation_ratings_rating");
-    await assertIndexProbe("reviews", sportsWhere, sportsScope.args, "idx_public_review_counts_review_count");
-    await assertIndexProbe("rating", sportsWhere, sportsScope.args, "idx_public_relation_ratings_rating");
-    await assertIndexProbe("reviews", mathWhere, mathScope.args, "idx_public_review_counts_review_count");
+
+    expect(relationBrowseUsesIndexedThreshold({ category: "", sort: "reviews" })).toBe(true);
+    expect(relationBrowseUsesIndexedThreshold({ category: "", sort: "rating" })).toBe(false);
+    expect(relationBrowseUsesIndexedThreshold({ category: "sports", sort: "reviews" })).toBe(false);
+    expect(relationBrowseUsesIndexedThreshold({ category: "sports", sort: "rating" })).toBe(false);
+    expect(relationBrowseUsesIndexedThreshold({ category: "math", sort: "reviews" })).toBe(false);
+    expect(relationBrowseUsesIndexedThreshold({ category: "general", sort: "reviews" })).toBe(false);
+    expect(relationBrowseAggregateFromSql("reviews")).not.toContain("INDEXED BY");
+    expect(relationBrowseAggregateFromSql("rating")).not.toContain("INDEXED BY");
+    expect(relationBrowseThresholdProbeSql("reviews", sportsWhere)).toContain(
+      "INDEXED BY idx_public_review_counts_review_count",
+    );
+
+    const sportsPagePlan = await env.DB.prepare(
+      `EXPLAIN QUERY PLAN SELECT c.id
+       ${relationBrowseAggregateFromSql("reviews")}
+       WHERE ${sportsWhere}
+       ORDER BY COALESCE(rel_counts.review_count,0) DESC
+       LIMIT ?`,
+    )
+      .bind(...sportsScope.args, 21)
+      .all<{ detail: string }>();
+    const sportsPageDetails = (sportsPagePlan.results ?? []).map((row) =>
+      String(row.detail ?? ""),
+    );
+    expect(
+      sportsPageDetails.some((line) =>
+        line.includes(
+          "SCAN rel_counts USING COVERING INDEX idx_public_review_counts_review_count",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      sportsPageDetails.some((line) => line.includes("idx_public_course_canonicals_sports")),
+    ).toBe(true);
 
     const teacherId = 928_000_001;
     const idBase = 928_100_000;
@@ -1151,6 +1178,25 @@ describe("公共目录浏览全序", () => {
       const unfilteredProbeRead = Number(unfilteredProbe.meta?.rows_read) || 0;
       expect(unfilteredProbeRead).toBeGreaterThan(0);
       expect(unfilteredFullRead).toBeGreaterThan(unfilteredProbeRead);
+
+      const sportsPage = await env.DB.prepare(
+        `SELECT c.id course_id
+         ${relationBrowseAggregateFromSql("reviews")}
+         WHERE ${sportsWhere}
+         ORDER BY COALESCE(rel_counts.review_count,0) DESC
+         LIMIT ?`,
+      )
+        .bind(...sportsScope.args, 21)
+        .all<{ course_id: number }>();
+      const sportsIndexedProbe = await env.DB.prepare(
+        relationBrowseThresholdProbeSql("reviews", sportsWhere),
+      )
+        .bind(...sportsScope.args, 19)
+        .all<{ sort_threshold: number | null }>();
+      const sportsPageRead = Number(sportsPage.meta?.rows_read) || 0;
+      const sportsIndexedProbeRead = Number(sportsIndexedProbe.meta?.rows_read) || 0;
+      expect(sportsPageRead).toBeGreaterThan(0);
+      expect(sportsIndexedProbeRead).toBeGreaterThan(sportsPageRead);
 
       const shortProbe = await env.DB.prepare(
         relationBrowseThresholdProbeSql("reviews", isolatedWhere),
