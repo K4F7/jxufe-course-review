@@ -20,6 +20,14 @@ import {
 
 export const CATALOG_BROWSE_READY_COLUMN = "catalog_browse_ready";
 
+/**
+ * #931 / #932: 每次重建都会全量写浏览 staging（约 11.7 万行）。普通投稿直接
+ * approved，线上每条新评价都会触发一次重建，超出 D1 免费额度。关闭后重建不再
+ * 写 0063 的浏览表，读取走 #929 的旧查询。表保留，也不把 catalog_browse_ready
+ * 置 0，避免部署窗口里的旧实例看到 0 后又触发重建。差异写入落地后再打开。
+ */
+export const CATALOG_BROWSE_PROJECTION_ENABLED = false;
+
 const refreshLeaseGuard = `EXISTS(
   SELECT 1 FROM public_precompute_state
   WHERE id=1

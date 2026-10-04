@@ -43,6 +43,7 @@ import {
   loadPrecomputedCoursePage,
   loadPrecomputedRelationPage,
 } from "./public-catalog-browse";
+import { CATALOG_BROWSE_PROJECTION_ENABLED } from "./public-catalog-browse-plan";
 import {
   ensureCatalogBrowseProjection,
   ensurePublicListPrecomputes,
@@ -645,7 +646,11 @@ export async function queryPublicCourses(
   precompute: PublicPrecomputeReadOptions = {},
 ): Promise<PublicCatalogPage<PublicCourseListItem>> {
   await ensurePublicListPrecomputes(db, precompute);
-  if (canUsePrecomputedCatalogBrowse(query)) {
+  // #932: a disabled browse projection must not mark dirty or rebuild.
+  if (
+    CATALOG_BROWSE_PROJECTION_ENABLED &&
+    canUsePrecomputedCatalogBrowse(query)
+  ) {
     try {
       if (await ensureCatalogBrowseProjection(db)) {
         return await loadPrecomputedCoursePage(db, query);
@@ -849,7 +854,11 @@ export async function queryPublicCourseRelations(
   precompute: PublicPrecomputeReadOptions = {},
 ): Promise<PublicCatalogPage<PublicRelationListItem>> {
   await ensurePublicListPrecomputes(db, precompute);
-  if (canUsePrecomputedCatalogBrowse(query)) {
+  // #932: a disabled browse projection must not mark dirty or rebuild.
+  if (
+    CATALOG_BROWSE_PROJECTION_ENABLED &&
+    canUsePrecomputedCatalogBrowse(query)
+  ) {
     try {
       if (await ensureCatalogBrowseProjection(db)) {
         const page = await loadPrecomputedRelationPage(db, query);
