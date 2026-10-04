@@ -22,6 +22,12 @@ import {
   guestReviewBindingSql,
   historicalPublicVisibleSql,
 } from "./public-review-visibility";
+import {
+  bindLease,
+  projectionUpsert,
+  refreshLeaseGuard,
+  staleKeyDelete,
+} from "./public-projection-write";
 
 const sqlLiteral = (value: string) => `'${value.replaceAll("'", "''")}'`;
 
@@ -33,15 +39,6 @@ const firstNumberedPreference = PE_SKILL_FAMILIES.flatMap((family) =>
 )
   .map(sqlLiteral)
   .join(",");
-
-const refreshLeaseGuard = `EXISTS(
-  SELECT 1 FROM public_precompute_state
-  WHERE id=1
-    AND dirty=1
-    AND generation=?
-    AND refresh_token=?
-    AND refresh_lease_until>unixepoch()
-)`;
 
 export type PublicProjectionTarget = "active" | "staging";
 
@@ -292,75 +289,6 @@ const chunk = <T>(items: readonly T[], size: number) => {
     groups.push(items.slice(offset, offset + size));
   return groups;
 };
-
-const projectionUpsert = ({
-  table,
-  columns,
-  keys,
-  selectSql,
-  preserveUnchangedPinyin = false,
-}: {
-  table: string;
-  columns: readonly string[];
-  keys: readonly string[];
-  selectSql: string;
-  preserveUnchangedPinyin?: boolean;
-}) => {
-  const keySet = new Set(keys);
-  const assignments = columns
-    .filter((column) => !keySet.has(column))
-    .map((column) => {
-      if (preserveUnchangedPinyin && column === "pinyin_text") {
-        return `pinyin_text=CASE
-          WHEN excluded.match_text=${table}.match_text THEN excluded.pinyin_text
-          WHEN excluded.pinyin_text<>'' THEN excluded.pinyin_text
-          ELSE ${table}.pinyin_text
-        END`;
-      }
-      return `${column}=excluded.${column}`;
-    })
-    .join(",");
-  const differences = columns
-    .filter((column) => !keySet.has(column))
-    .map((column) => {
-      if (preserveUnchangedPinyin && column === "pinyin_text") {
-        return `(
-          (excluded.match_text=${table}.match_text AND ${table}.pinyin_text IS NOT excluded.pinyin_text)
-          OR (
-            excluded.match_text IS NOT ${table}.match_text
-            AND excluded.pinyin_text<>''
-            AND ${table}.pinyin_text IS NOT excluded.pinyin_text
-          )
-        )`;
-      }
-      return `${table}.${column} IS NOT excluded.${column}`;
-    })
-    .join(" OR ");
-  return `INSERT INTO ${table}(${columns.join(",")})
-    ${selectSql}
-    ON CONFLICT(${keys.join(",")}) DO UPDATE SET
-      ${assignments}
-    WHERE ${differences}`;
-};
-
-const staleKeyDelete = (
-  table: string,
-  keys: readonly string[],
-  freshSql: string,
-) => `DELETE FROM ${table}
-  WHERE NOT EXISTS (
-    SELECT 1 FROM (${freshSql}) fresh
-    WHERE ${keys.map((key) => `fresh.${key}=${table}.${key}`).join(" AND ")}
-  )
-  AND ${refreshLeaseGuard}`;
-
-const bindLease = (
-  db: D1Database,
-  sql: string,
-  generation: number,
-  token: string,
-  leading: readonly unknown[] = [],
-) => db.prepare(sql).bind(...leading, generation, token);
 
 const pinyinUpdateSql = (table: string, idColumn: string, count: number) => {
   const cases = Array.from({ length: count }, () => "WHEN ? THEN ?").join(" ");
