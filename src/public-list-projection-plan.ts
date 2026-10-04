@@ -1,6 +1,7 @@
 import {
   CATALOG_BROWSE_PROJECTION_ENABLED,
   CATALOG_BROWSE_READY_COLUMN,
+  CATALOG_BROWSE_READY_VERSION,
   catalogBrowseProjections,
   stagePublicCatalogBrowse,
 } from "./public-catalog-browse-plan";
@@ -22,6 +23,12 @@ import {
   guestReviewBindingSql,
   historicalPublicVisibleSql,
 } from "./public-review-visibility";
+import {
+  bindLease,
+  projectionUpsert,
+  refreshLeaseGuard,
+  staleKeyDelete,
+} from "./public-projection-write";
 
 const sqlLiteral = (value: string) => `'${value.replaceAll("'", "''")}'`;
 
@@ -33,15 +40,6 @@ const firstNumberedPreference = PE_SKILL_FAMILIES.flatMap((family) =>
 )
   .map(sqlLiteral)
   .join(",");
-
-const refreshLeaseGuard = `EXISTS(
-  SELECT 1 FROM public_precompute_state
-  WHERE id=1
-    AND dirty=1
-    AND generation=?
-    AND refresh_token=?
-    AND refresh_lease_until>unixepoch()
-)`;
 
 export type PublicProjectionTarget = "active" | "staging";
 
@@ -292,75 +290,6 @@ const chunk = <T>(items: readonly T[], size: number) => {
     groups.push(items.slice(offset, offset + size));
   return groups;
 };
-
-const projectionUpsert = ({
-  table,
-  columns,
-  keys,
-  selectSql,
-  preserveUnchangedPinyin = false,
-}: {
-  table: string;
-  columns: readonly string[];
-  keys: readonly string[];
-  selectSql: string;
-  preserveUnchangedPinyin?: boolean;
-}) => {
-  const keySet = new Set(keys);
-  const assignments = columns
-    .filter((column) => !keySet.has(column))
-    .map((column) => {
-      if (preserveUnchangedPinyin && column === "pinyin_text") {
-        return `pinyin_text=CASE
-          WHEN excluded.match_text=${table}.match_text THEN excluded.pinyin_text
-          WHEN excluded.pinyin_text<>'' THEN excluded.pinyin_text
-          ELSE ${table}.pinyin_text
-        END`;
-      }
-      return `${column}=excluded.${column}`;
-    })
-    .join(",");
-  const differences = columns
-    .filter((column) => !keySet.has(column))
-    .map((column) => {
-      if (preserveUnchangedPinyin && column === "pinyin_text") {
-        return `(
-          (excluded.match_text=${table}.match_text AND ${table}.pinyin_text IS NOT excluded.pinyin_text)
-          OR (
-            excluded.match_text IS NOT ${table}.match_text
-            AND excluded.pinyin_text<>''
-            AND ${table}.pinyin_text IS NOT excluded.pinyin_text
-          )
-        )`;
-      }
-      return `${table}.${column} IS NOT excluded.${column}`;
-    })
-    .join(" OR ");
-  return `INSERT INTO ${table}(${columns.join(",")})
-    ${selectSql}
-    ON CONFLICT(${keys.join(",")}) DO UPDATE SET
-      ${assignments}
-    WHERE ${differences}`;
-};
-
-const staleKeyDelete = (
-  table: string,
-  keys: readonly string[],
-  freshSql: string,
-) => `DELETE FROM ${table}
-  WHERE NOT EXISTS (
-    SELECT 1 FROM (${freshSql}) fresh
-    WHERE ${keys.map((key) => `fresh.${key}=${table}.${key}`).join(" AND ")}
-  )
-  AND ${refreshLeaseGuard}`;
-
-const bindLease = (
-  db: D1Database,
-  sql: string,
-  generation: number,
-  token: string,
-  leading: readonly unknown[] = [],
-) => db.prepare(sql).bind(...leading, generation, token);
 
 const pinyinUpdateSql = (table: string, idColumn: string, count: number) => {
   const cases = Array.from({ length: count }, () => "WHEN ? THEN ?").join(" ");
@@ -683,10 +612,9 @@ export async function rebuildPublicListProjection({
   await renewLease();
   // Browse staging reads the review-count staging rows committed above.
   // It stays after the pinyin rewrite so a lost lease there still stops
-  // before these tables are filled. #932 turns the writes off entirely.
-  // Migration 0063 can also land later. Either way, skip staging and the
-  // publish below, and do not write catalog_browse_ready (clearing it to 0
-  // would make an older instance rebuild again during the deploy window).
+  // before these tables are filled. Migration 0063 can land later; until
+  // the staging table exists, skip browse staging and do not touch
+  // catalog_browse_ready.
   const catalogBrowse =
     CATALOG_BROWSE_PROJECTION_ENABLED &&
     (await hasProjectionTable(db, "public_relation_browse_staging"));
@@ -834,13 +762,13 @@ export async function rebuildPublicListProjection({
     publish.push(
       db.prepare(
         `UPDATE public_precompute_state
-         SET ${CATALOG_BROWSE_READY_COLUMN}=1
+         SET ${CATALOG_BROWSE_READY_COLUMN}=${CATALOG_BROWSE_READY_VERSION}
          WHERE id=1
            AND dirty=1
            AND generation=?
            AND refresh_token=?
            AND refresh_lease_until>unixepoch()
-           AND ${CATALOG_BROWSE_READY_COLUMN} IS NOT 1`,
+           AND ${CATALOG_BROWSE_READY_COLUMN} IS NOT ${CATALOG_BROWSE_READY_VERSION}`,
       ).bind(generation, token),
     );
   }

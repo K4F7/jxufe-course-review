@@ -1,4 +1,7 @@
-import { CATALOG_BROWSE_READY_COLUMN } from "./public-catalog-browse-plan";
+import {
+  CATALOG_BROWSE_READY_COLUMN,
+  CATALOG_BROWSE_READY_VERSION,
+} from "./public-catalog-browse-plan";
 import { rebuildPublicListProjection } from "./public-list-projection-plan";
 
 const publicListMutationRoutes: ReadonlyArray<readonly [string, RegExp]> = [
@@ -207,7 +210,7 @@ export function isMissingPublicSchemaError(error: unknown): boolean {
   return /no such (table|column|index)|no query solution/i.test(message);
 }
 
-/** True once migration 0063's catalog browse projection has been published. */
+/** True once the current catalog browse projection version has been published. */
 export async function ensureCatalogBrowseProjection(
   db: D1Database,
 ): Promise<boolean> {
@@ -225,13 +228,13 @@ export async function ensureCatalogBrowseProjection(
     if (isMissingPublicSchemaError(error)) return false;
     throw error;
   }
-  if (ready === 1) return true;
+  if (ready === CATALOG_BROWSE_READY_VERSION) return true;
   try {
     await db
       .prepare(
         `UPDATE public_precompute_state
          SET dirty=1
-         WHERE id=1 AND ${CATALOG_BROWSE_READY_COLUMN}=0`,
+         WHERE id=1 AND ${CATALOG_BROWSE_READY_COLUMN} IS NOT ${CATALOG_BROWSE_READY_VERSION}`,
       )
       .run();
     await refreshPublicListPrecomputes(db);
@@ -246,7 +249,7 @@ export async function ensureCatalogBrowseProjection(
          FROM public_precompute_state WHERE id=1`,
       )
       .first<{ ready: number }>();
-    return Number(row?.ready) === 1;
+    return Number(row?.ready) === CATALOG_BROWSE_READY_VERSION;
   } catch (error) {
     if (isMissingPublicSchemaError(error)) return false;
     throw error;

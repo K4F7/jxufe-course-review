@@ -49,4 +49,31 @@ describe("目录浏览多行插入", () => {
       `relation:${chunkSize}`,
     ]);
   });
+
+  it("键列用 DO NOTHING，其余列只在变化时更新", () => {
+    const [keyOnly] = columnRowInsertStatements(
+      "public_relation_browse_departments_staging",
+      ["department", "public_id"],
+      [{ department: "院", public_id: "relation:1" }],
+      ["department", "public_id"],
+    );
+    expect(keyOnly?.sql).toContain(
+      "ON CONFLICT(department,public_id) DO NOTHING",
+    );
+    expect(keyOnly?.sql).not.toContain("DO UPDATE");
+
+    const [wide] = columnRowInsertStatements(
+      "public_relation_browse_totals_staging",
+      ["category", "n"],
+      [{ category: "all", n: 1 }],
+      ["category"],
+    );
+    expect(wide?.sql).toContain("ON CONFLICT(category) DO UPDATE SET");
+    expect(wide?.sql).toContain("n=excluded.n");
+    expect(wide?.sql).toContain(
+      "public_relation_browse_totals_staging.n IS NOT excluded.n",
+    );
+    const placeholders = wide?.sql.match(/\?/g) ?? [];
+    expect(placeholders).toHaveLength((wide?.values.length ?? 0) + 2);
+  });
 });
