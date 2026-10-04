@@ -17,6 +17,11 @@ import {
   loadPublicPeRelationProjection,
   publicPeMappedSourceRelationExcludeSql,
 } from "./lib/public-pe-relation-projection";
+import {
+  bindLease,
+  projectionUpsert,
+  refreshLeaseGuard,
+} from "./public-projection-write";
 
 export const CATALOG_BROWSE_READY_COLUMN = "catalog_browse_ready";
 
@@ -27,15 +32,6 @@ export const CATALOG_BROWSE_READY_COLUMN = "catalog_browse_ready";
  * 置 0，避免部署窗口里的旧实例看到 0 后又触发重建。差异写入落地后再打开。
  */
 export const CATALOG_BROWSE_PROJECTION_ENABLED = false;
-
-const refreshLeaseGuard = `EXISTS(
-  SELECT 1 FROM public_precompute_state
-  WHERE id=1
-    AND dirty=1
-    AND generation=?
-    AND refresh_token=?
-    AND refresh_lease_until>unixepoch()
-)`;
 
 export const RELATION_BROWSE_COLUMNS = [
   "public_id",
@@ -141,6 +137,12 @@ export const catalogBrowseProjections: readonly CatalogBrowseProjection[] = [
   },
 ];
 
+function browseSpec(staging: string): CatalogBrowseProjection {
+  const spec = catalogBrowseProjections.find((item) => item.staging === staging);
+  if (!spec) throw new Error(`missing browse projection ${staging}`);
+  return spec;
+}
+
 const BROWSE_TOTAL_CATEGORIES = [
   "all",
   "sports",
@@ -180,16 +182,6 @@ END`;
 const categoryFlagSql = CATEGORY_FLAGS.map(
   ([, category]) => `CASE WHEN ${inlineCategoryFilter(category)} THEN 1 ELSE 0 END`,
 ).join(",");
-
-function bindLease(
-  db: D1Database,
-  sql: string,
-  generation: number,
-  token: string,
-  leading: readonly unknown[] = [],
-) {
-  return db.prepare(sql).bind(...leading, generation, token);
-}
 
 /**
  * The PE list loaders read `public_review_counts`. During a rebuild those
@@ -261,6 +253,7 @@ export function columnRowInsertStatements(
   table: string,
   columns: readonly string[],
   rows: ReadonlyArray<Readonly<Record<string, unknown>>>,
+  keys?: readonly string[],
 ): ColumnRowInsertStatement[] {
   if (!rows.length) return [];
   const chunkSize = columnRowInsertChunkSize(columns.length);
@@ -271,10 +264,13 @@ export function columnRowInsertStatements(
     const tuples = slice
       .map(() => `(${columns.map(() => "?").join(",")})`)
       .join(",");
+    const selectSql = `SELECT ${projected} FROM (VALUES ${tuples})
+       WHERE ${refreshLeaseGuard}`;
     statements.push({
-      sql: `INSERT INTO ${table}(${columns.join(",")})
-       SELECT ${projected} FROM (VALUES ${tuples})
-       WHERE ${refreshLeaseGuard}`,
+      sql: keys?.length
+        ? projectionUpsert({ table, columns, keys, selectSql })
+        : `INSERT INTO ${table}(${columns.join(",")})
+       ${selectSql}`,
       values: slice.flatMap((row) => columns.map((column) => row[column])),
     });
   }
@@ -286,11 +282,91 @@ async function insertColumnRows(
   table: string,
   columns: readonly string[],
   rows: ReadonlyArray<Readonly<Record<string, unknown>>>,
+  keys: readonly string[],
   generation: number,
   token: string,
   renewLease: () => Promise<void>,
 ) {
-  for (const statement of columnRowInsertStatements(table, columns, rows)) {
+  for (const statement of columnRowInsertStatements(table, columns, rows, keys)) {
+    await renewLease();
+    await bindLease(
+      db,
+      statement.sql,
+      generation,
+      token,
+      statement.values,
+    ).run();
+  }
+}
+
+function browseKeyToken(
+  row: Readonly<Record<string, unknown>>,
+  keys: readonly string[],
+) {
+  return JSON.stringify(
+    keys.map((key) => {
+      const value = row[key];
+      if (value == null) return null;
+      if (typeof value === "number") return value;
+      return String(value);
+    }),
+  );
+}
+
+function staleKeyDeleteStatements(
+  table: string,
+  keys: readonly string[],
+  rows: ReadonlyArray<Readonly<Record<string, unknown>>>,
+): ColumnRowInsertStatement[] {
+  if (!rows.length) return [];
+  const chunkSize = columnRowInsertChunkSize(keys.length);
+  const statements: ColumnRowInsertStatement[] = [];
+  for (let offset = 0; offset < rows.length; offset += chunkSize) {
+    const slice = rows.slice(offset, offset + chunkSize);
+    const tuples = slice
+      .map(() => `(${keys.map(() => "?").join(",")})`)
+      .join(",");
+    statements.push({
+      sql: `DELETE FROM ${table}
+       WHERE (${keys.join(",")}) IN (VALUES ${tuples})
+       AND ${refreshLeaseGuard}`,
+      values: slice.flatMap((row) => keys.map((key) => row[key])),
+    });
+  }
+  return statements;
+}
+
+async function deleteStaleBrowseKeys({
+  db,
+  table,
+  keys,
+  freshSql,
+  jsRows,
+  generation,
+  token,
+  renewLease,
+}: {
+  db: D1Database;
+  table: string;
+  keys: readonly string[];
+  freshSql: string;
+  jsRows: ReadonlyArray<Readonly<Record<string, unknown>>>;
+  generation: number;
+  token: string;
+  renewLease: () => Promise<void>;
+}) {
+  await renewLease();
+  const [existing, fresh] = await Promise.all([
+    db.prepare(`SELECT ${keys.join(",")} FROM ${table}`).all<Record<string, unknown>>(),
+    db.prepare(freshSql).all<Record<string, unknown>>(),
+  ]);
+  const freshTokens = new Set<string>();
+  for (const row of fresh.results ?? []) freshTokens.add(browseKeyToken(row, keys));
+  for (const row of jsRows) freshTokens.add(browseKeyToken(row, keys));
+  const stale = (existing.results ?? []).filter(
+    (row) => !freshTokens.has(browseKeyToken(row, keys)),
+  );
+  for (const statement of staleKeyDeleteStatements(table, keys, stale)) {
     await renewLease();
     await bindLease(
       db,
@@ -441,63 +517,94 @@ async function stageBrowseExtras(
     }));
   });
 
-  await insertColumnRows(
-    db,
-    "public_relation_browse_staging",
-    RELATION_BROWSE_COLUMNS,
-    relationRows,
-    generation,
-    token,
-    renewLease,
-  );
-  await insertColumnRows(
-    db,
+  const relationRowSpec = browseSpec("public_relation_browse_staging");
+  const relationDepartmentSpec = browseSpec(
     "public_relation_browse_departments_staging",
-    ["department", "public_id"],
-    relationDepartmentRows,
-    generation,
-    token,
-    renewLease,
   );
-  await insertColumnRows(
-    db,
-    "public_course_browse_staging",
-    COURSE_BROWSE_COLUMNS,
-    courseRows,
-    generation,
-    token,
-    renewLease,
-  );
-  await insertColumnRows(
-    db,
+  const courseRowSpec = browseSpec("public_course_browse_staging");
+  const courseDepartmentSpec = browseSpec(
     "public_course_browse_departments_staging",
-    ["department", "public_id"],
-    courseDepartmentRows,
+  );
+  const courseTeacherSpec = browseSpec("public_course_browse_teachers_staging");
+  await insertColumnRows(
+    db,
+    relationRowSpec.staging,
+    relationRowSpec.columns,
+    relationRows,
+    relationRowSpec.keys,
     generation,
     token,
     renewLease,
   );
   await insertColumnRows(
     db,
-    "public_course_browse_teachers_staging",
-    ["teacher_id", "public_id"],
-    courseTeacherRows,
+    relationDepartmentSpec.staging,
+    relationDepartmentSpec.columns,
+    relationDepartmentRows,
+    relationDepartmentSpec.keys,
     generation,
     token,
     renewLease,
   );
+  await insertColumnRows(
+    db,
+    courseRowSpec.staging,
+    courseRowSpec.columns,
+    courseRows,
+    courseRowSpec.keys,
+    generation,
+    token,
+    renewLease,
+  );
+  await insertColumnRows(
+    db,
+    courseDepartmentSpec.staging,
+    courseDepartmentSpec.columns,
+    courseDepartmentRows,
+    courseDepartmentSpec.keys,
+    generation,
+    token,
+    renewLease,
+  );
+  await insertColumnRows(
+    db,
+    courseTeacherSpec.staging,
+    courseTeacherSpec.columns,
+    courseTeacherRows,
+    courseTeacherSpec.keys,
+    generation,
+    token,
+    renewLease,
+  );
+  return {
+    relationRows,
+    relationDepartmentRows,
+    courseRows,
+    courseDepartmentRows,
+    courseTeacherRows,
+  };
 }
 
-function totalInserts(
+function totalUpsert(
   table: string,
   flag: string | null,
   category: string,
   source: string,
 ): string {
   const where = flag ? `${flag}=1 AND ${refreshLeaseGuard}` : refreshLeaseGuard;
-  return `INSERT INTO ${table}(category, n)
-    SELECT '${category}', COUNT(*) FROM ${source}
-    WHERE ${where}`;
+  return projectionUpsert({
+    table,
+    columns: ["category", "n"],
+    keys: ["category"],
+    selectSql: `SELECT '${category}', COUNT(*) FROM ${source}
+    WHERE ${where}`,
+  });
+}
+
+function totalStaleDelete(table: string): string {
+  return `DELETE FROM ${table}
+    WHERE category NOT IN (${BROWSE_TOTAL_CATEGORIES.map(() => "?").join(",")})
+      AND ${refreshLeaseGuard}`;
 }
 
 export async function stagePublicCatalogBrowse({
@@ -517,26 +624,15 @@ export async function stagePublicCatalogBrowse({
   reviewCounts: string;
   relationRatings: string;
 }): Promise<void> {
-  await renewLease();
-  const stagingTables = catalogBrowseProjections.map((spec) => spec.staging);
-  await db.batch(
-    stagingTables.map((table) =>
-      bindLease(
-        db,
-        `DELETE FROM ${table} WHERE ${refreshLeaseGuard}`,
-        generation,
-        token,
-      ),
-    ),
-  );
-
   const displayName = `(${publicCourseDisplayNameSql("c")})`;
   const visible = publicCourseVisibleSql("c");
-  const relationWhere = `${visible}
-    AND ${publicPeMappedSourceRelationExcludeSql("c", "ct")}
+  const relationFilter = `${visible}
+    AND ${publicPeMappedSourceRelationExcludeSql("c", "ct")}`;
+  const courseFilter = `${visible}
+    AND ${publicPeMappedSourceCourseExcludeSql("c")}`;
+  const relationWhere = `${relationFilter}
     AND ${refreshLeaseGuard}`;
-  const courseWhere = `${visible}
-    AND ${publicPeMappedSourceCourseExcludeSql("c")}
+  const courseWhere = `${courseFilter}
     AND ${refreshLeaseGuard}`;
   const relationFrom = `FROM courses c
     ${canonicalJoin(canonicals)}
@@ -546,13 +642,27 @@ export async function stagePublicCatalogBrowse({
       ON rel_counts.course_id=c.id AND rel_counts.teacher_id=t.id
     LEFT JOIN ${relationRatings} rel_rating
       ON rel_rating.course_id=c.id AND rel_rating.teacher_id=t.id`;
+  const relationRowSpec = browseSpec("public_relation_browse_staging");
+  const relationDepartmentSpec = browseSpec(
+    "public_relation_browse_departments_staging",
+  );
+  const courseRowSpec = browseSpec("public_course_browse_staging");
+  const courseDepartmentSpec = browseSpec(
+    "public_course_browse_departments_staging",
+  );
+  const courseTeacherSpec = browseSpec("public_course_browse_teachers_staging");
+  const relationTotalSpec = browseSpec("public_relation_browse_totals_staging");
+  const courseTotalSpec = browseSpec("public_course_browse_totals_staging");
 
   await renewLease();
   await db.batch([
     bindLease(
       db,
-      `INSERT INTO public_relation_browse_staging(${RELATION_BROWSE_COLUMNS.join(",")})
-       SELECT 'relation:' || c.id || ':' || t.id,
+      projectionUpsert({
+        table: relationRowSpec.staging,
+        columns: relationRowSpec.columns,
+        keys: relationRowSpec.keys,
+        selectSql: `SELECT 'relation:' || c.id || ':' || t.id,
          c.id,
          c.code,
          ${displayName},
@@ -568,22 +678,31 @@ export async function stagePublicCatalogBrowse({
          ${categoryFlagSql}
        ${relationFrom}
        WHERE ${relationWhere}`,
+      }),
       generation,
       token,
     ),
     bindLease(
       db,
-      `INSERT INTO public_relation_browse_departments_staging(department, public_id)
-       SELECT trim(c.department), 'relation:' || c.id || ':' || t.id
+      projectionUpsert({
+        table: relationDepartmentSpec.staging,
+        columns: relationDepartmentSpec.columns,
+        keys: relationDepartmentSpec.keys,
+        selectSql: `SELECT trim(c.department), 'relation:' || c.id || ':' || t.id
        ${relationFrom}
        WHERE ${relationWhere}
          AND trim(c.department)<>''`,
+      }),
       generation,
       token,
     ),
     bindLease(
       db,
-      `INSERT INTO public_course_browse_staging(${COURSE_BROWSE_COLUMNS.join(",")})
+      projectionUpsert({
+        table: courseRowSpec.staging,
+        columns: courseRowSpec.columns,
+        keys: courseRowSpec.keys,
+        selectSql: `SELECT * FROM (
        SELECT 'course:' || c.id,
          c.id,
          c.code,
@@ -616,45 +735,117 @@ export async function stagePublicCatalogBrowse({
          GROUP BY course_id
        ) course_review_counts ON course_review_counts.course_id=c.id
        WHERE ${courseWhere}
-       GROUP BY c.id`,
+       GROUP BY c.id
+     ) grouped
+     WHERE 1`,
+      }),
       generation,
       token,
     ),
     bindLease(
       db,
-      `INSERT INTO public_course_browse_departments_staging(department, public_id)
-       SELECT trim(c.department), 'course:' || c.id
+      projectionUpsert({
+        table: courseDepartmentSpec.staging,
+        columns: courseDepartmentSpec.columns,
+        keys: courseDepartmentSpec.keys,
+        selectSql: `SELECT trim(c.department), 'course:' || c.id
        FROM courses c
        ${canonicalJoin(canonicals)}
        WHERE ${courseWhere}
          AND trim(c.department)<>''`,
+      }),
       generation,
       token,
     ),
     bindLease(
       db,
-      `INSERT INTO public_course_browse_teachers_staging(teacher_id, public_id)
-       SELECT ct.teacher_id, 'course:' || c.id
+      projectionUpsert({
+        table: courseTeacherSpec.staging,
+        columns: courseTeacherSpec.columns,
+        keys: courseTeacherSpec.keys,
+        selectSql: `SELECT ct.teacher_id, 'course:' || c.id
        FROM courses c
        ${canonicalJoin(canonicals)}
        JOIN course_teachers ct ON ct.course_id=c.id
        WHERE ${courseWhere}`,
+      }),
       generation,
       token,
     ),
   ]);
 
-  await stageBrowseExtras(db, generation, token, renewLease);
+  const extras = await stageBrowseExtras(db, generation, token, renewLease);
+  const staleTargets: Array<{
+    spec: CatalogBrowseProjection;
+    freshSql: string;
+    jsRows: ReadonlyArray<Readonly<Record<string, unknown>>>;
+  }> = [
+    {
+      spec: relationRowSpec,
+      freshSql: `SELECT 'relation:' || c.id || ':' || t.id AS public_id
+        ${relationFrom}
+        WHERE ${relationFilter}`,
+      jsRows: extras.relationRows,
+    },
+    {
+      spec: relationDepartmentSpec,
+      freshSql: `SELECT trim(c.department) AS department,
+          'relation:' || c.id || ':' || t.id AS public_id
+        ${relationFrom}
+        WHERE ${relationFilter}
+          AND trim(c.department)<>''`,
+      jsRows: extras.relationDepartmentRows,
+    },
+    {
+      spec: courseRowSpec,
+      freshSql: `SELECT 'course:' || c.id AS public_id
+        FROM courses c
+        ${canonicalJoin(canonicals)}
+        WHERE ${courseFilter}`,
+      jsRows: extras.courseRows,
+    },
+    {
+      spec: courseDepartmentSpec,
+      freshSql: `SELECT trim(c.department) AS department, 'course:' || c.id AS public_id
+        FROM courses c
+        ${canonicalJoin(canonicals)}
+        WHERE ${courseFilter}
+          AND trim(c.department)<>''`,
+      jsRows: extras.courseDepartmentRows,
+    },
+    {
+      spec: courseTeacherSpec,
+      freshSql: `SELECT ct.teacher_id AS teacher_id, 'course:' || c.id AS public_id
+        FROM courses c
+        ${canonicalJoin(canonicals)}
+        JOIN course_teachers ct ON ct.course_id=c.id
+        WHERE ${courseFilter}`,
+      jsRows: extras.courseTeacherRows,
+    },
+  ];
+  for (const target of staleTargets) {
+    await deleteStaleBrowseKeys({
+      db,
+      table: target.spec.staging,
+      keys: target.spec.keys,
+      freshSql: target.freshSql,
+      jsRows: target.jsRows,
+      generation,
+      token,
+      renewLease,
+    });
+  }
+
   await renewLease();
   const totalStatements = [
     ...BROWSE_TOTAL_CATEGORIES.map((category) =>
       bindLease(
         db,
-        totalInserts(
-          "public_relation_browse_totals_staging",
+        totalUpsert(
+          relationTotalSpec.staging,
           category === "all" ? null : `in_${category}`,
           category,
-          "public_relation_browse_staging",
+          relationRowSpec.staging,
         ),
         generation,
         token,
@@ -663,15 +854,29 @@ export async function stagePublicCatalogBrowse({
     ...BROWSE_TOTAL_CATEGORIES.map((category) =>
       bindLease(
         db,
-        totalInserts(
-          "public_course_browse_totals_staging",
+        totalUpsert(
+          courseTotalSpec.staging,
           category === "all" ? null : `in_${category}`,
           category,
-          "public_course_browse_staging",
+          courseRowSpec.staging,
         ),
         generation,
         token,
       ),
+    ),
+    bindLease(
+      db,
+      totalStaleDelete(relationTotalSpec.staging),
+      generation,
+      token,
+      [...BROWSE_TOTAL_CATEGORIES],
+    ),
+    bindLease(
+      db,
+      totalStaleDelete(courseTotalSpec.staging),
+      generation,
+      token,
+      [...BROWSE_TOTAL_CATEGORIES],
     ),
   ];
   await db.batch(totalStatements);
