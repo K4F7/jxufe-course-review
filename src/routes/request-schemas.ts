@@ -204,6 +204,21 @@ export const relationImportEnvelopeSchema = z
 
 export const objectEnvelopeSchema = z.object({}).passthrough();
 
+export const historicalReviewPackageImportSchema = z.object({
+  dryRun: z.boolean(),
+  records: z
+    .array(
+      z.object({
+        key: z.string().optional(),
+        courseCode: z.string(),
+        teacherLabel: z.string(),
+        comment: z.string(),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
 export const baselinePathSchema = z.object({
   batchId: z.string().trim().min(1).max(120),
 });

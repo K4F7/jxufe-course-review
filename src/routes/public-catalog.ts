@@ -74,6 +74,7 @@ import {
 } from "../lib/catalog-search-candidates";
 import { handleLatestPublicReviews } from "../public-reviews-latest";
 import { handleListReviewComments } from "../review-comments";
+import { sourceLabelForPackageContract } from "../historical-review-packages";
 import { decoratePublicReviews } from "../review-endorsements";
 import { readVoteActorId } from "../review-vote-actor";
 import { loadRelationSignalPayloads } from "../relation-signals";
@@ -343,7 +344,7 @@ const getPublicReviewPage = async (
            COALESCE(signal.challenge_count,0) challenge_count,
            NULL scheme_key,NULL scheme_version,NULL scores,
            NULL overall,phr.imported_at created_at,
-           ${reservedAuthorSql}, phr.blocked_at
+           ${reservedAuthorSql}, phr.blocked_at, phr.package_contract
          FROM public_historical_reviews phr
          JOIN courses c ON c.id=phr.course_id
          JOIN teachers t ON t.id=phr.teacher_id
@@ -363,7 +364,7 @@ const getPublicReviewPage = async (
            COALESCE(signal.challenge_count,0) challenge_count,
            r.scheme_key,r.scheme_version,r.scores,
            r.overall,r.created_at,
-           ${authoredReviewAuthorSql}, r.blocked_at
+           ${authoredReviewAuthorSql}, r.blocked_at, NULL AS package_contract
          FROM reviews r
          JOIN courses c ON c.id=r.course_id
          JOIN teachers t ON t.id=r.teacher_id
@@ -406,7 +407,7 @@ const getPublicReviewPage = async (
          headline,grade,
          course_name,course_code,teacher_name,endorsement_count,challenge_count,
          scheme_key,scheme_version,scores,overall,created_at,
-         author_public_code,author_avatar_key,blocked_at
+         author_public_code,author_avatar_key,blocked_at,package_contract
          FROM (${reviewUnion}) public_reviews
          ${pageSql}`,
       )
@@ -450,8 +451,10 @@ const getPublicReviewPage = async (
           scores,
           grade: rawGrade,
           blocked_at: blockedAt,
+          package_contract: packageContract,
           ...review
         }) => {
+          const sourceLabel = sourceLabelForPackageContract(packageContract);
           const dimensionAverage = publicDimensionAverage({
             schemeKey,
             schemeVersion,
@@ -473,6 +476,7 @@ const getPublicReviewPage = async (
             ...(dimensionAverage == null ? {} : { dimensionAverage }),
             ...(dimensionLabels == null ? {} : { dimensionLabels }),
             ...(includeBlocked && blockedAt ? { blocked: true } : {}),
+            ...(sourceLabel ? { source_label: sourceLabel } : {}),
           };
         },
       ),

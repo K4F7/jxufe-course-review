@@ -6,6 +6,7 @@ import { Button, Card, Skeleton, Spinner, Typography } from "@heroui/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ReviewAuthor } from "../components/ReviewAuthor";
+import { ReviewSourceLabel } from "../components/ReviewSourceLabel";
 import { DetailErrorAlert } from "../components/DetailErrorAlert";
 import { ReviewNoteContent } from "../components/ReviewNoteContent";
 import { RouterAriaLink } from "../components/RouterAriaLink";
@@ -261,6 +262,7 @@ function LatestReviewItem({ review }: { review: LatestReview }) {
             layout="baseline"
             className="leading-6"
           />
+          <ReviewSourceLabel label={review.source_label} />
           <span className="text-muted"> 点评了 </span>
           <RouterAriaLink
             to={`/courses/${review.course_id}?teacher=${review.teacher_id}`}

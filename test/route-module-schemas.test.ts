@@ -94,6 +94,9 @@ describe("domain route composition", () => {
     expect(importRoutes.routes.map(routeKey)).toContain(
       "POST /api/admin/catalog-baseline/uploads",
     );
+    expect(importRoutes.routes.map(routeKey)).toContain(
+      "POST /api/admin/historical-review-packages/:package/imports",
+    );
   });
 
   it("applies the admin guard to the separately composed import router", async () => {

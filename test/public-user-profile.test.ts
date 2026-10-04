@@ -81,7 +81,7 @@ describe("public user profile and follow", () => {
       reserved: true,
       followable: false,
       viewer_followed: false,
-      note: "来自以前的学长学姐的评价",
+      note: "来自以前的学长学姐的评价，部分整理自 QQ 频道「江西财经大学」",
     });
     expect(
       body.reviews.some((review) => review.comment.includes("学长学姐")),

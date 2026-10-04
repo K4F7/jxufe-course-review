@@ -54,6 +54,7 @@
     "db:clone-preview": "bash scripts/d1/clone-preview.sh",
     "catalog-relations:v10": "tsx scripts/catalog-relation-additions/publish-v10.ts",
     "historical-import:v5": "tsx scripts/historical-import/publish-v5.ts",
+    "historical-import:package": "tsx scripts/historical-import/publish-package.ts",
     "secrets:sync-local": "tsx scripts/secrets/sync-local.ts",
     "check:migrations": "node scripts/check-migrations.mjs"
   },

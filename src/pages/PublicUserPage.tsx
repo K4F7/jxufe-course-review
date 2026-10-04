@@ -9,6 +9,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AnonymousAvatar } from "../components/AnonymousAvatar";
 import { DetailErrorAlert } from "../components/DetailErrorAlert";
 import { ReviewNoteContent } from "../components/ReviewNoteContent";
+import { ReviewSourceLabel } from "../components/ReviewSourceLabel";
 import { RouterAriaLink } from "../components/RouterAriaLink";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useViewer } from "../hooks/useViewer";
@@ -363,15 +364,18 @@ function PublicUserReviewItem({ review }: { review: LatestReview }) {
   return (
     <li className="min-w-0 border-b border-separator py-3 last:border-b-0 sm:py-4">
       <header className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
-        <p className="m-0 min-w-0 flex-1 text-[calc(13/15*1rem)] leading-6 sm:text-sm">
-          <RouterAriaLink
-            to={`/courses/${review.course_id}?teacher=${review.teacher_id}`}
-            className="max-sm:!inline max-w-full break-words [overflow-wrap:anywhere] text-accent sm:inline-block"
-          >
-            {review.course_name}
-            {review.teacher_name ? `（${review.teacher_name}）` : ""}
-          </RouterAriaLink>
-        </p>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+          <p className="m-0 min-w-0 text-[calc(13/15*1rem)] leading-6 sm:text-sm">
+            <RouterAriaLink
+              to={`/courses/${review.course_id}?teacher=${review.teacher_id}`}
+              className="max-sm:!inline max-w-full break-words [overflow-wrap:anywhere] text-accent sm:inline-block"
+            >
+              {review.course_name}
+              {review.teacher_name ? `（${review.teacher_name}）` : ""}
+            </RouterAriaLink>
+          </p>
+          <ReviewSourceLabel label={review.source_label} />
+        </div>
         {date ? (
           <time
             className="shrink-0 text-[calc(12/15*1rem)] text-muted"
